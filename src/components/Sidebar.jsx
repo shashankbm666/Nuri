@@ -9,7 +9,6 @@ import {
   HeartPulse,
   ShieldCheck
 } from 'lucide-react';
-import ThemeToggle from './ThemeToggle';
 
 export default function Sidebar({
   activeTab = 'dashboard',
@@ -100,7 +99,7 @@ export default function Sidebar({
       </div>
 
       {/* Bottom Area */}
-      <div className="p-4 space-y-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+      <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
         {/* HIPAA Compliant Info Card */}
         <div className="p-3 rounded-xl bg-teal-50/70 dark:bg-slate-800/80 border border-teal-100 dark:border-teal-900/40 flex items-start gap-2.5">
           <ShieldCheck className="w-5 h-5 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
@@ -111,13 +110,6 @@ export default function Sidebar({
             </span>
           </div>
         </div>
-
-        {/* Animated Dark Mode toggle */}
-        <ThemeToggle
-          darkMode={darkMode}
-          setDarkMode={setDarkMode}
-          variant="sidebar"
-        />
       </div>
     </div>
   );
