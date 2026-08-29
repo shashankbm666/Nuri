@@ -1,106 +1,104 @@
-import React from 'react';
-import { CheckCircle2, Clock } from 'lucide-react';
+﻿import React from "react";
+import Sparkline from "./Sparkline";
 
 export default function VitalCard({
   title,
   subtitle,
-  value,
+  vitalData, // { value, status, level, note, history }
   unit,
-  standardRange,
-  status = 'Normal',
-  icon: IconComponent,
-  theme = 'teal',
-  isCapturing = false
+  standardRange
 }) {
-  const themeStyles = {
-    rose: {
-      border: 'border-rose-100 dark:border-rose-900/40',
-      bgGlow: 'from-rose-500/10 to-transparent',
-      iconBg: 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800',
-      accentText: 'text-rose-600 dark:text-rose-400',
-    },
-    teal: {
-      border: 'border-teal-100 dark:border-teal-900/40',
-      bgGlow: 'from-teal-500/10 to-transparent',
-      iconBg: 'bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 border border-teal-200 dark:border-teal-800',
-      accentText: 'text-teal-600 dark:text-teal-400',
+  const hasReading = vitalData && vitalData.value !== undefined && vitalData.value !== null;
+  const level = vitalData?.level || "green";
+
+  // Semantic styles for status badge and highlights
+  const semanticClasses = {
+    green: {
+      text: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200/60 dark:border-emerald-800/40"
     },
     amber: {
-      border: 'border-amber-100 dark:border-amber-900/40',
-      bgGlow: 'from-amber-500/10 to-transparent',
-      iconBg: 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800',
-      accentText: 'text-amber-600 dark:text-amber-400',
+      text: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-50 dark:bg-amber-950/40 border-amber-200/60 dark:border-amber-800/40"
+    },
+    rose: {
+      text: "text-rose-600 dark:text-rose-400",
+      bg: "bg-rose-50 dark:bg-rose-950/40 border-rose-200/60 dark:border-rose-800/40"
+    },
+    muted: {
+      text: "text-slate-400 dark:text-zinc-500",
+      bg: "bg-slate-100 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700"
     }
   };
 
-  const currentTheme = themeStyles[theme] || themeStyles.teal;
-  const hasValue = value !== undefined && value !== null && value !== '';
+  const currentSemantic = semanticClasses[level] || semanticClasses.green;
 
   return (
-    <div
-      className={`relative overflow-hidden bg-white dark:bg-slate-900 rounded-2xl p-5 border ${currentTheme.border} shadow-xs hover:shadow-md transition-all duration-300 flex flex-col justify-between`}
-    >
-      <div
-        className={`absolute -top-12 -right-12 w-32 h-32 bg-gradient-to-br ${currentTheme.bgGlow} rounded-full blur-2xl pointer-events-none`}
-      />
-
+    <div className="rounded-2xl p-6 transition-all duration-300 border flex flex-col justify-between min-h-[230px] bg-white dark:bg-zinc-900 border-slate-200/90 dark:border-zinc-800 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
       <div>
-        {/* Header with Title, Subtitle, and Icon */}
-        <div className="flex items-center justify-between gap-2 mb-4">
-          <div className="flex items-center gap-3">
-            <div className={`p-3 rounded-xl ${currentTheme.iconBg}`}>
-              <IconComponent className={`w-6 h-6 ${isCapturing ? 'animate-pulse' : ''}`} />
-            </div>
-            <div>
-              <h3 className="font-semibold text-slate-800 dark:text-slate-100 text-base">
-                {title}
-              </h3>
-              {subtitle && (
-                <p className="text-xs text-slate-400 dark:text-slate-500">{subtitle}</p>
-              )}
-            </div>
+        {/* Top Header: Title, Sublabel, and Status */}
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-medium text-slate-600 dark:text-zinc-300 tracking-tight">
+              {title}
+            </h3>
+            <p className="text-xs text-slate-400 dark:text-zinc-500 font-normal mt-0.5">
+              {subtitle}
+            </p>
           </div>
 
-          {/* Status Badge */}
-          {isCapturing ? (
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-teal-50 dark:bg-teal-950/80 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
-              <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-ping" />
-              Scanning
-            </span>
-          ) : hasValue ? (
-            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              {status || 'Normal'}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-              <Clock className="w-3 h-3 text-slate-400" />
-              Awaiting
-            </span>
-          )}
+          <div>
+            {hasReading ? (
+              <span className={`text-[11px] font-medium px-2 py-0.5 rounded border ${currentSemantic.text} ${currentSemantic.bg}`}>
+                {vitalData.status || "Normal"}
+              </span>
+            ) : (
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded text-slate-400 dark:text-zinc-500 bg-slate-50 dark:bg-zinc-800/50">
+                No record
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Value Display / Shimmer / Placeholder */}
-        <div className="my-3">
-          {isCapturing ? (
-            <div className="py-2 space-y-2 animate-pulse">
-              <div className="h-9 w-24 bg-slate-200 dark:bg-slate-800 rounded-lg" />
-              <div className="h-3 w-36 bg-slate-100 dark:bg-slate-800/60 rounded" />
-            </div>
-          ) : hasValue ? (
-            <div className="flex items-baseline gap-2">
-              <span className={`text-4xl font-extrabold tracking-tight ${currentTheme.accentText}`}>
-                {value}
-              </span>
-              <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                {unit}
-              </span>
+        {/* Hero Number & Measurement Value */}
+        <div className="mt-5 mb-2">
+          {hasReading ? (
+            <div>
+              <div className="flex items-baseline gap-1.5">
+                <span className={`text-5xl font-semibold tracking-tight tabular-nums ${
+                  level === "amber" || level === "rose" 
+                    ? currentSemantic.text 
+                    : "text-slate-900 dark:text-white"
+                }`}>
+                  {vitalData.value}
+                </span>
+                <span className="text-sm font-medium text-slate-400 dark:text-zinc-400 ml-0.5">
+                  {unit}
+                </span>
+              </div>
+
+              {/* Mini Sparkline Telemetry */}
+              {vitalData.history && vitalData.history.length > 0 && (
+                <div className="mt-3.5 mb-1">
+                  <Sparkline data={vitalData.history} level={level} width={160} height={28} />
+                </div>
+              )}
+
+              {/* Status Note (if elevated or out of range) */}
+              {vitalData.note && (
+                <p className={`text-xs font-medium mt-2 flex items-center gap-1 ${currentSemantic.text}`}>
+                  <span>•</span>
+                  <span>{vitalData.note}</span>
+                </p>
+              )}
             </div>
           ) : (
-            <div className="py-1">
-              <span className="text-3xl font-bold text-slate-300 dark:text-slate-600">--</span>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 italic">
-                No reading captured yet
+            <div className="py-2">
+              <span className="text-4xl font-light text-slate-300 dark:text-zinc-700 tracking-tight font-mono">
+                — —
+              </span>
+              <p className="text-xs text-slate-400 dark:text-zinc-500 mt-2 font-normal">
+                No reading recorded yet
               </p>
             </div>
           )}
@@ -108,9 +106,9 @@ export default function VitalCard({
       </div>
 
       {/* Footer Standard Range */}
-      <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-        <span className="text-slate-400 dark:text-slate-500">Standard range</span>
-        <span className="font-semibold text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-100 dark:border-slate-700/50">
+      <div className="pt-3 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between text-xs text-slate-400 dark:text-zinc-500">
+        <span>Standard range</span>
+        <span className="font-normal text-slate-500 dark:text-zinc-400">
           {standardRange}
         </span>
       </div>

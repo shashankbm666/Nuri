@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 import {
   LayoutDashboard,
   Calendar,
@@ -7,23 +7,24 @@ import {
   Settings,
   X,
   HeartPulse,
-  ShieldCheck
-} from 'lucide-react';
+  LogOut
+} from "lucide-react";
+import { Link } from "react-router-dom";
 
 export default function Sidebar({
-  activeTab = 'dashboard',
+  activeTab = "dashboard",
   setActiveTab,
-  darkMode,
-  setDarkMode,
   mobileOpen,
-  setMobileOpen
+  setMobileOpen,
+  onLogout
 }) {
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, badge: 'Live' },
-    { id: 'appointments', label: 'Appointments', icon: Calendar },
-    { id: 'reports', label: 'Medical Reports', icon: FileText },
-    { id: 'contact', label: 'Contact Us', icon: PhoneCall },
-    { id: 'settings', label: 'System Settings', icon: Settings },
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "survey", label: "Symptom Survey", icon: FileText },
+    { id: "appointments", label: "Appointments", icon: Calendar },
+    { id: "reports", label: "Medical Reports", icon: FileText },
+    { id: "contact", label: "Contact Us", icon: PhoneCall },
+    { id: "settings", label: "Settings", icon: Settings },
   ];
 
   const handleNavClick = (id) => {
@@ -32,39 +33,35 @@ export default function Sidebar({
   };
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 transition-colors duration-300">
-      {/* Brand Header */}
-      <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-600 via-emerald-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-teal-500/25 text-white">
-            <HeartPulse className="w-6 h-6 animate-pulse" />
+    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 border-r border-slate-200/80 dark:border-zinc-800/80 text-slate-700 dark:text-zinc-300 transition-colors duration-300">
+      {/* Brand Header: Solid color, no gradients, no "PRO" badge */}
+      <div className="p-6 border-b border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
+        <Link to="/" className="flex items-center gap-3 group">
+          <div className="w-8 h-8 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-zinc-900 flex items-center justify-center font-bold">
+            <HeartPulse className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-lg text-slate-900 dark:text-white tracking-tight">Nuri</span>
-              <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-teal-50 dark:bg-teal-950/80 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
-                PRO
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Patient Vitals Station</p>
+            <span className="font-semibold text-base text-slate-900 dark:text-white tracking-tight">
+              Nuri
+            </span>
+            <p className="text-[11px] text-slate-400 dark:text-zinc-500 font-normal">
+              Patient Vitals Station
+            </p>
           </div>
-        </div>
+        </Link>
 
         {/* Mobile close button */}
         <button
           onClick={() => setMobileOpen(false)}
-          className="lg:hidden p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-          aria-label="Close Sidebar"
+          className="lg:hidden p-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 rounded-lg"
+          aria-label="Close navigation"
         >
           <X className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Main Navigation */}
-      <div className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-        <div className="px-3 pb-2 text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-          Main Menu
-        </div>
+      {/* Navigation List: Clean, quiet, solid active highlight */}
+      <div className="flex-1 px-3 py-6 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -72,43 +69,42 @@ export default function Sidebar({
             <button
               key={item.id}
               onClick={() => handleNavClick(item.id)}
-              className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                 isActive
-                  ? 'bg-teal-600 text-white shadow-md shadow-teal-600/25'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/70 hover:text-slate-900 dark:hover:text-white'
+                  ? "bg-slate-900 text-white dark:bg-zinc-100 dark:text-zinc-900 font-semibold"
+                  : "text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-900 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
-              <div className="flex items-center gap-3">
-                <Icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400 dark:text-slate-400'}`} />
-                <span>{item.label}</span>
-              </div>
-              {item.badge && (
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    isActive
-                      ? 'bg-white/20 text-white'
-                      : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60'
-                  }`}
-                >
-                  {item.badge}
-                </span>
-              )}
+              <Icon className={`w-4 h-4 ${isActive ? "text-white dark:text-zinc-900" : "text-slate-400 dark:text-zinc-500"}`} />
+              <span>{item.label}</span>
             </button>
           );
         })}
       </div>
 
-      {/* Bottom Area */}
-      <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-        {/* HIPAA Compliant Info Card */}
-        <div className="p-3 rounded-xl bg-teal-50/70 dark:bg-slate-800/80 border border-teal-100 dark:border-teal-900/40 flex items-start gap-2.5">
-          <ShieldCheck className="w-5 h-5 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
-          <div>
-            <span className="block text-xs font-bold text-teal-900 dark:text-teal-300">HIPAA Compliant</span>
-            <span className="block text-[11px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
-              256-bit encrypted telemetry
-            </span>
-          </div>
+      {/* Bottom Area: Muted Switch Role / Logout and Compliance Note */}
+      <div className="p-4 border-t border-slate-100 dark:border-zinc-800/80 space-y-3">
+        {onLogout ? (
+          <button
+            onClick={onLogout}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-900 transition cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Exit / Logout</span>
+          </button>
+        ) : (
+          <Link
+            to="/"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-900 transition"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Exit / Switch User</span>
+          </Link>
+        )}
+
+        {/* Quiet compliance text (no loud badges) */}
+        <div className="text-[11px] text-slate-400 dark:text-zinc-500 text-center leading-tight">
+          HIPAA Compliant • 256-Bit Encrypted
         </div>
       </div>
     </div>
@@ -117,7 +113,7 @@ export default function Sidebar({
   return (
     <>
       {/* Desktop fixed sidebar */}
-      <aside className="hidden lg:flex w-64 xl:w-72 flex-col fixed inset-y-0 left-0 z-30 shadow-xs">
+      <aside className="hidden lg:flex w-64 flex-col fixed inset-y-0 left-0 z-30">
         {sidebarContent}
       </aside>
 
@@ -125,15 +121,15 @@ export default function Sidebar({
       {mobileOpen && (
         <div
           onClick={() => setMobileOpen(false)}
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 lg:hidden transition-opacity cursor-pointer"
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40 lg:hidden transition-opacity cursor-pointer"
           aria-hidden="true"
         />
       )}
 
       {/* Mobile Drawer */}
       <div
-        className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] transform transition-transform duration-300 ease-in-out lg:hidden ${
-          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out lg:hidden ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         {sidebarContent}
