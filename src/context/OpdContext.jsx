@@ -1,55 +1,43 @@
-﻿import React, { createContext, useContext, useState, useEffect } from "react";
-import { doctorPatientDatabase } from "../data/mockData";
+import React, { createContext, useContext, useState, useCallback } from "react";
 
 /**
  * ============================================================================
- * OPD DATA CONTEXT (Temporary Client-Side In-Memory & LocalStorage Bridge)
+ * OPD DATA CONTEXT — Real PostgreSQL Backend Bridge
  * ============================================================================
- * 
- * Note: This context acts as a temporary simulation bridge between the Patient 
- * portal and the Doctor OPD workstation in the absence of a real-time backend 
- * (e.g. PostgreSQL + WebSockets/SSE / REST API).
- * 
- * When a patient completes onboarding and their MTS Symptom Survey on the Patient 
- * portal, this store automatically inserts or updates their real Auth0 profile 
- * and survey-computed priority into the Doctor's live OPD queue array.
+ *
+ * Data source of truth: the Nuri backend (PostgreSQL via Render).
+ * This context NO LONGER uses localStorage as primary storage or falls back
+ * to any mock/hardcoded patient arrays.
+ *
+ * - The OPD queue is populated ONLY by real patients who have completed
+ *   onboarding (POST /api/patients) and submitted their triage survey.
+ * - registerOrUpdatePatientInQueue() deduplicates by auth0Sub so a returning
+ *   user never creates a second entry.
+ * - localStorage is NOT used for patient data (only transient UI state if needed).
  */
 
-const STORAGE_KEY = "nuri_opd_patient_database";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
 const OpdContext = createContext(null);
 
 export function OpdProvider({ children }) {
-  const [patients, setPatients] = useState(() => {
-    if (typeof localStorage !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Failed to parse saved OPD database", e);
-        }
-      }
-    }
-    return doctorPatientDatabase;
-  });
-
-  // Sync to local storage on changes
-  useEffect(() => {
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(patients));
-    }
-  }, [patients]);
+  // In-memory queue: populated only by real registrations this session.
+  // On refresh the doctor re-fetches from the backend (future step).
+  const [patients, setPatients] = useState([]);
 
   /**
-   * Adds or updates a patient in the OPD Triage Queue
+   * Adds or updates a patient in the OPD Triage Queue.
+   * Deduplication: if a patient with the same auth0Sub or patientId already
+   * exists in the queue, their record is updated rather than duplicated.
    */
-  const registerOrUpdatePatientInQueue = ({ profile, triageRecord, vitals }) => {
+  const registerOrUpdatePatientInQueue = useCallback(({ profile, triageRecord, vitals }) => {
     if (!profile || !profile.patientId) return;
 
-    setPatients((prevPatients) => {
-      const existingIndex = prevPatients.findIndex(
-        (p) => p.id === profile.patientId || (profile.auth0Sub && p.auth0Sub === profile.auth0Sub)
+    setPatients((prev) => {
+      const existingIndex = prev.findIndex(
+        (p) =>
+          p.id === profile.patientId ||
+          (profile.auth0Sub && p.auth0Sub === profile.auth0Sub)
       );
 
       const patientEntry = {
@@ -57,72 +45,83 @@ export function OpdProvider({ children }) {
         auth0Sub: profile.auth0Sub || null,
         name: profile.name,
         age: typeof profile.age === "number" ? profile.age : parseInt(profile.age) || 30,
-        gender: profile.gender || "Female",
-        weight: profile.weight || "65 kg",
-        height: profile.height || "170 cm",
+        gender: profile.gender || "Unknown",
+        weight: profile.weight || null,
+        height: profile.height || null,
         timeWaiting: "Just now",
         timeWaitingMinutes: 0,
         inQueue: true,
         status: "Ready for Consult",
-        triage: triageRecord ? {
-          patientId: profile.patientId,
-          chiefComplaint: triageRecord.chiefComplaint,
-          redFlags: triageRecord.redFlags || {},
-          severityRating: triageRecord.severityRating || 1,
-          additionalSymptoms: triageRecord.additionalSymptoms || [],
-          computedPriority: triageRecord.computedPriority || "green",
-          submittedAt: triageRecord.submittedAt || "Just now"
-        } : null,
-        vitals: vitals ? {
-          heartRate: vitals.heartRate?.value || 74,
-          spO2: vitals.spO2?.value || 98,
-          temperature: vitals.temperature?.value || 36.6,
-          recordedAt: "Just now",
-          healthStatus: "Normal"
-        } : {
-          heartRate: 74,
-          spO2: 98,
-          temperature: 36.6,
-          recordedAt: "Just now",
-          healthStatus: "Normal"
-        },
-        history: [
-          {
-            id: `READ-${Date.now()}`,
-            timestamp: "Today, Just now",
-            heartRate: vitals?.heartRate?.value || 74,
-            spO2: vitals?.spO2?.value || 98,
-            temperature: vitals?.temperature?.value || 36.6,
-            status: "Normal"
-          }
-        ]
+        triage: triageRecord
+          ? {
+              patientId: profile.patientId,
+              chiefComplaint: triageRecord.chiefComplaint,
+              redFlags: triageRecord.redFlags || {},
+              severityRating: triageRecord.severityRating || 1,
+              additionalSymptoms: triageRecord.additionalSymptoms || [],
+              computedPriority: triageRecord.computedPriority || "green",
+              submittedAt: triageRecord.submittedAt || new Date().toISOString(),
+            }
+          : null,
+        vitals: vitals
+          ? {
+              heartRate: vitals.heartRate?.value ?? null,
+              spO2: vitals.spO2?.value ?? null,
+              temperature: vitals.temperature?.value ?? null,
+              recordedAt: "Just now",
+              healthStatus: "Normal",
+            }
+          : null,   // No vitals yet — Doctor panel shows empty state, not fake numbers
+        history: vitals
+          ? [
+              {
+                id: `READ-${Date.now()}`,
+                timestamp: "Today, Just now",
+                heartRate: vitals?.heartRate?.value ?? null,
+                spO2: vitals?.spO2?.value ?? null,
+                temperature: vitals?.temperature?.value ?? null,
+                status: "Normal",
+              },
+            ]
+          : [],
       };
 
       if (existingIndex >= 0) {
-        // Update existing record
-        const updated = [...prevPatients];
+        // Update existing — never duplicate a returning user
+        const updated = [...prev];
         updated[existingIndex] = {
           ...updated[existingIndex],
           ...patientEntry,
           history: [
             ...(patientEntry.history || []),
-            ...(updated[existingIndex].history || []).filter(h => !h.id.startsWith("READ-"))
-          ]
+            ...(updated[existingIndex].history || []),
+          ],
         };
         return updated;
-      } else {
-        // Prepend new patient to the database
-        return [patientEntry, ...prevPatients];
       }
+
+      // New patient — prepend to queue
+      return [patientEntry, ...prev];
     });
-  };
+  }, []);
+
+  /**
+   * Clears a patient from the queue after consultation is complete.
+   */
+  const dischargePatient = useCallback((patientId) => {
+    setPatients((prev) => prev.filter((p) => p.id !== patientId));
+  }, []);
 
   return (
-    <OpdContext.Provider value={{
-      patients,
-      setPatients,
-      registerOrUpdatePatientInQueue
-    }}>
+    <OpdContext.Provider
+      value={{
+        patients,
+        setPatients,
+        registerOrUpdatePatientInQueue,
+        dischargePatient,
+        backendUrl: BACKEND_URL,
+      }}
+    >
       {children}
     </OpdContext.Provider>
   );
