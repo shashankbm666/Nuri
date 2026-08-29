@@ -5,37 +5,8 @@
  * inspired by the Manchester Triage System (MTS) — not a clinical-grade implementation.
  */
 
-// In-memory triage survey records stored by patientId
-const triageSurveyDatabase = {
-  "MED-89422": {
-    patientId: "MED-89422",
-    chiefComplaint: "Chest pain",
-    redFlags: {
-      difficultyBreathing: false,
-      severePain: true,
-      suddenOnset: true,
-      faintingOrSyncope: false
-    },
-    severityRating: 4,
-    additionalSymptoms: ["Dizziness", "Body ache"],
-    computedPriority: "red",
-    submittedAt: "10:25 AM, Today"
-  },
-  "MED-89423": {
-    patientId: "MED-89423",
-    chiefComplaint: "Fever",
-    redFlags: {
-      difficultyBreathing: false,
-      severePain: false,
-      suddenOnset: false,
-      faintingOrSyncope: false
-    },
-    severityRating: 5,
-    additionalSymptoms: ["Chills", "Fatigue", "Body ache"],
-    computedPriority: "orange",
-    submittedAt: "10:18 AM, Today"
-  }
-};
+// In-memory triage survey records stored dynamically by patientId
+const triageSurveyDatabase = {};
 
 /**
  * Calculates priority based on MTS-inspired triage rules:
@@ -89,6 +60,8 @@ export function savePatientTriageSurvey(surveyPayload) {
  * Retrieves the triage record for a given patient
  */
 export function getPatientTriageSurvey(patientId) {
+  if (!patientId) return null;
+
   if (triageSurveyDatabase[patientId]) {
     return triageSurveyDatabase[patientId];
   }

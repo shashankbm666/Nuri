@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import { 
   CheckCircle2, 
   ArrowRight, 
@@ -49,7 +49,7 @@ const ADDITIONAL_SYMPTOMS = [
 ];
 
 export default function SymptomSurvey({
-  patientId = "MED-89421",
+  patientId,
   onComplete,
   onCancel
 }) {

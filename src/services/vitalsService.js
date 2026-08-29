@@ -1,19 +1,16 @@
 ﻿/**
  * Vitals Service - Telemetry and Stored Reading Data Service
  * 
- * Provides read-only access to the patient's latest stored telemetry reading
- * and historical data. Structured for drop-in replacement with a backend API call:
- * e.g., fetch(`/api/patients/${patientId}/vitals/latest`)
+ * Provides access to the patient's real stored telemetry reading.
+ * Returns null if no reading has been recorded yet for the patient.
  */
 
-import { initialSparklines } from "../data/mockData";
-
-// In-memory store of patient telemetry readings (structured for future DB / REST API)
+// In-memory store of patient telemetry readings (populated strictly from real readings/captures)
 const patientVitalsStore = {};
 
 /**
  * Retrieves the latest stored vitals reading for a given patient.
- * Returns the patient's specific telemetry reading.
+ * Returns null if no telemetry has been recorded yet for this patient.
  */
 export function getLatestVitalsForPatient(patientId) {
   if (!patientId) return null;
@@ -22,52 +19,21 @@ export function getLatestVitalsForPatient(patientId) {
     return patientVitalsStore[patientId];
   }
 
-  // Check local storage for any persisted readings for this patient
+  // Check local storage for any persisted real readings for this patient
   if (typeof localStorage !== "undefined") {
     const saved = localStorage.getItem(`nuri_patient_vitals_${patientId}`);
     if (saved) {
-      const parsed = JSON.parse(saved);
-      patientVitalsStore[patientId] = parsed;
-      return parsed;
+      try {
+        const parsed = JSON.parse(saved);
+        patientVitalsStore[patientId] = parsed;
+        return parsed;
+      } catch (e) {
+        console.error("Failed to parse patient vitals from local storage", e);
+      }
     }
   }
 
-  // Default baseline reading initialized for this patient
-  const defaultReading = {
-    patientId,
-    timestamp: "10:45 AM, Today",
-    syncedAgoText: "Recorded at check-in",
-    heartRate: {
-      value: 74,
-      unit: "bpm",
-      status: "Normal",
-      level: "green",
-      note: null,
-      standardRange: "60 – 100 bpm",
-      history: initialSparklines.heartRate
-    },
-    spO2: {
-      value: 98,
-      unit: "%",
-      status: "Normal",
-      level: "green",
-      note: null,
-      standardRange: "95% – 100%",
-      history: initialSparklines.spO2
-    },
-    temperature: {
-      value: 36.6,
-      unit: "°C",
-      status: "Normal",
-      level: "green",
-      note: null,
-      standardRange: "36.1 – 37.2°C",
-      history: initialSparklines.temperature
-    }
-  };
-
-  patientVitalsStore[patientId] = defaultReading;
-  return defaultReading;
+  return null;
 }
 
 /**
@@ -77,7 +43,8 @@ export function saveVitalsReadingForPatient(patientId, readingData) {
   const record = {
     ...readingData,
     patientId,
-    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + ", Today"
+    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + ", Today",
+    syncedAgoText: "Recorded " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   };
   patientVitalsStore[patientId] = record;
   if (typeof localStorage !== "undefined") {

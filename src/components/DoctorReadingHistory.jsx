@@ -1,11 +1,19 @@
-﻿import React from "react";
+import React from "react";
 import { History, AlertCircle, CheckCircle2 } from "lucide-react";
 
 export default function DoctorReadingHistory({ history = [], darkMode }) {
   if (!history || history.length === 0) {
     return (
-      <div className="rounded-2xl p-6 border border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400 bg-white dark:bg-slate-900">
-        No past reading records available for this patient.
+      <div className="rounded-2xl p-8 border border-slate-200/90 dark:border-slate-800 text-center space-y-2 bg-white dark:bg-slate-900 shadow-xs">
+        <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+          <History className="w-4 h-4" />
+        </div>
+        <h4 className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+          No Past Telemetry Records
+        </h4>
+        <p className="text-[11px] text-slate-400 dark:text-zinc-500 max-w-xs mx-auto">
+          Past telemetry logs and consultation visit timestamps will appear here.
+        </p>
       </div>
     );
   }

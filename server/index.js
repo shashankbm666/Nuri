@@ -6,6 +6,7 @@ import cors from "cors";
  * Nuri Backend Web Service (Render / Railway / Localhost)
  * ============================================================================
  * REST API for OPD Triage Queue, Auth0 Patient Profiles, and ESP32 Telemetry
+ * (Clean database initialization — starts with 0 fake/seeded patients)
  */
 
 const app = express();
@@ -15,72 +16,7 @@ app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 // In-Memory Data Store (Structured for future PostgreSQL / SQLite DB)
-let opdDatabase = [
-  {
-    id: "MED-89422",
-    name: "James Rodriguez",
-    age: 52,
-    gender: "Male",
-    weight: "82 kg",
-    height: "176 cm",
-    timeWaiting: "12 mins ago",
-    timeWaitingMinutes: 12,
-    inQueue: true,
-    status: "Ready for Consult",
-    triage: {
-      patientId: "MED-89422",
-      chiefComplaint: "Chest pain",
-      redFlags: {
-        difficultyBreathing: false,
-        severePain: true,
-        suddenOnset: true,
-        faintingOrSyncope: false
-      },
-      severityRating: 4,
-      additionalSymptoms: ["Dizziness", "Body ache"],
-      computedPriority: "red",
-      submittedAt: "10:25 AM, Today"
-    },
-    vitals: {
-      heartRate: 88,
-      spO2: 96,
-      temperature: 37.1,
-      recordedAt: "10:37 AM",
-      healthStatus: "Normal"
-    },
-    history: [
-      { id: "JR-09", timestamp: "Today, 10:37 AM", heartRate: 88, spO2: 96, temperature: 37.1, status: "Normal" }
-    ]
-  },
-  {
-    id: "MED-89423",
-    name: "Clara Oswald",
-    age: 29,
-    gender: "Female",
-    weight: "57 kg",
-    height: "165 cm",
-    timeWaiting: "19 mins ago",
-    timeWaitingMinutes: 19,
-    inQueue: true,
-    status: "Awaiting Vitals",
-    triage: {
-      patientId: "MED-89423",
-      chiefComplaint: "Fever",
-      redFlags: {
-        difficultyBreathing: false,
-        severePain: false,
-        suddenOnset: false,
-        faintingOrSyncope: false
-      },
-      severityRating: 5,
-      additionalSymptoms: ["Chills", "Fatigue", "Body ache"],
-      computedPriority: "orange",
-      submittedAt: "10:18 AM, Today"
-    },
-    vitals: null,
-    history: []
-  }
-];
+let opdDatabase = [];
 
 // Health Check Endpoint (For Cloud Web Service Uptime Monitors)
 app.get("/", (req, res) => {
@@ -88,6 +24,7 @@ app.get("/", (req, res) => {
     service: "nuri-backend",
     status: "healthy",
     uptime: process.uptime(),
+    patientCount: opdDatabase.length,
     timestamp: new Date().toISOString()
   });
 });
@@ -96,7 +33,7 @@ app.get("/health", (req, res) => {
   res.status(200).send("OK");
 });
 
-// GET /api/v1/opd/queue - Retrieve all OPD patients
+// GET /api/v1/opd/queue - Retrieve all real OPD patients
 app.get("/api/v1/opd/queue", (req, res) => {
   res.json({
     success: true,
@@ -105,7 +42,7 @@ app.get("/api/v1/opd/queue", (req, res) => {
   });
 });
 
-// POST /api/v1/patients/onboarding - Register or update a patient
+// POST /api/v1/patients/onboarding - Register or update a real patient
 app.post("/api/v1/patients/onboarding", (req, res) => {
   const { patientId, auth0Sub, name, gender, age, weight, height, email, avatarUrl } = req.body;
 
@@ -245,5 +182,5 @@ app.get("/api/v1/patients/:id/vitals/latest", (req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`[Nuri Backend] Service listening on port ${PORT}`);
+  console.log(`[Nuri Backend] Service listening on port ${PORT} (0 seeded mock patients)`);
 });

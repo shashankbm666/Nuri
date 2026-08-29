@@ -11,7 +11,9 @@ import {
   FileText,
   Search,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Inbox,
+  UserCheck
 } from "lucide-react";
 import ThemeToggle from "../components/ThemeToggle";
 import VitalsTrendChart from "../components/VitalsTrendChart";
@@ -33,7 +35,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
   const { patients: allPatients } = useOpd();
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedPatientId, setSelectedPatientId] = useState("MED-89422");
+  const [selectedPatientId, setSelectedPatientId] = useState(null);
   const [consultNotes, setConsultNotes] = useState("");
 
   // Queue patients sorted by priority tier first (Red -> Orange -> Yellow -> Green -> Blue), then by wait time
@@ -54,7 +56,10 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
         p.id.toLowerCase().includes(searchQuery.toLowerCase())
       );
 
-  const selectedPatient = allPatients.find(p => p.id === selectedPatientId) || sortedQueue[0] || allPatients[0];
+  // Selected patient resolves to explicitly selected ID, or top queue patient, or null
+  const selectedPatient = selectedPatientId 
+    ? allPatients.find(p => p.id === selectedPatientId) 
+    : (sortedQueue[0] || allPatients[0] || null);
 
   return (
     <div className={`min-h-screen transition-colors duration-300 flex flex-col ${
@@ -95,7 +100,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
         <div className="flex items-center gap-3">
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Telemetry Feed Active</span>
+            <span>Station Active</span>
           </div>
 
           <ThemeToggle darkMode={darkMode} setDarkMode={setDarkMode} variant="button" />
@@ -120,7 +125,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search patients by name or ID"
+                placeholder="Search registered patients"
                 className={`w-full pl-9 pr-8 py-2 text-xs rounded-xl border outline-none transition-colors ${
                   darkMode
                     ? "bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500 focus:border-slate-400"
@@ -130,7 +135,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery("")}
-                  className="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -142,10 +147,14 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
               <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
                 <div className="text-[11px] text-slate-400 flex items-center justify-between">
                   <span>Search Results ({searchResults.length})</span>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Click to load</span>
+                  {searchResults.length > 0 && (
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Click to load</span>
+                  )}
                 </div>
                 {searchResults.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-2 text-center">No patients found for "{searchQuery}"</p>
+                  <p className="text-xs text-slate-400 py-3 text-center">
+                    No registered patients found matching "{searchQuery}"
+                  </p>
                 ) : (
                   searchResults.map((pat) => (
                     <button
@@ -172,7 +181,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                               ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300"
                               : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
                         }`}>
-                          {pat.triage?.computedPriority?.toUpperCase() || "RECORD"}
+                          {pat.triage?.computedPriority?.toUpperCase() || "PATIENT"}
                         </span>
                       </div>
                     </button>
@@ -196,109 +205,124 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
               </span>
             </div>
 
-            <div className="space-y-2.5">
-              {sortedQueue.map((pat) => {
-                const isSelected = pat.id === selectedPatient?.id;
-                const priority = pat.triage?.computedPriority || "green";
-                const isRed = priority === "red";
-                const isOrange = priority === "orange";
-                const isYellow = priority === "yellow";
+            {sortedQueue.length === 0 ? (
+              /* OPD Queue Empty State */
+              <div className="py-8 px-4 text-center space-y-2.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+                  <Inbox className="w-5 h-5" />
+                </div>
+                <h4 className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                  No Patients in Queue
+                </h4>
+                <p className="text-[11px] text-slate-400 dark:text-zinc-500 max-w-xs mx-auto leading-relaxed">
+                  Registered walk-in patients will appear here in real-time as they complete their pre-consultation registration and symptom survey.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {sortedQueue.map((pat) => {
+                  const isSelected = pat.id === selectedPatient?.id;
+                  const priority = pat.triage?.computedPriority || "green";
+                  const isRed = priority === "red";
+                  const isOrange = priority === "orange";
+                  const isYellow = priority === "yellow";
 
-                // Visual escalation styling
-                const rowBorderClass = isRed
-                  ? "border-l-4 border-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.15)]"
-                  : isOrange
-                    ? "border-l-4 border-amber-500"
-                    : isYellow
-                      ? "border-l-4 border-yellow-400"
-                      : "border-l-4 border-transparent";
-
-                const rowBgClass = isSelected
-                  ? isRed
-                    ? "bg-rose-50/90 dark:bg-rose-950/50 border-rose-400 dark:border-rose-700"
+                  // Visual escalation styling
+                  const rowBorderClass = isRed
+                    ? "border-l-4 border-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.15)]"
                     : isOrange
-                      ? "bg-amber-50/90 dark:bg-amber-950/50 border-amber-400 dark:border-amber-700"
-                      : "bg-slate-100/90 dark:bg-slate-800/80 border-slate-300 dark:border-slate-600 shadow-xs"
-                  : isRed
-                    ? "bg-rose-50/50 dark:bg-rose-950/20 border-rose-200/60 dark:border-rose-800/40 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                    : isOrange
-                      ? "bg-amber-50/40 dark:bg-amber-950/20 border-amber-200/60 dark:border-amber-800/40 hover:bg-amber-50 dark:hover:bg-amber-950/40"
-                      : darkMode
-                        ? "bg-slate-800/50 border-slate-700/60 hover:bg-slate-800"
-                        : "bg-slate-50/70 border-slate-200/70 hover:bg-slate-100/80";
+                      ? "border-l-4 border-amber-500"
+                      : isYellow
+                        ? "border-l-4 border-yellow-400"
+                        : "border-l-4 border-transparent";
 
-                return (
-                  <button
-                    key={pat.id}
-                    onClick={() => setSelectedPatientId(pat.id)}
-                    className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-center justify-between cursor-pointer ${rowBorderClass} ${rowBgClass}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
-                        isRed
-                          ? "bg-rose-600 text-white shadow-xs animate-pulse"
-                          : isOrange
-                            ? "bg-amber-500 text-white shadow-xs"
-                            : isSelected 
-                              ? "bg-slate-900 text-white dark:bg-white dark:text-zinc-900 shadow-xs" 
-                              : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
-                      }`}>
-                        {pat.name.split(" ").map(n => n[0]).join("")}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <h4 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
-                            {pat.name}
-                          </h4>
-                          {isRed && (
-                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-pulse shrink-0" />
-                          )}
-                          {isOrange && (
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                          )}
+                  const rowBgClass = isSelected
+                    ? isRed
+                      ? "bg-rose-50/90 dark:bg-rose-950/50 border-rose-400 dark:border-rose-700"
+                      : isOrange
+                        ? "bg-amber-50/90 dark:bg-amber-950/50 border-amber-400 dark:border-amber-700"
+                        : "bg-slate-100/90 dark:bg-slate-800/80 border-slate-300 dark:border-slate-600 shadow-xs"
+                    : isRed
+                      ? "bg-rose-50/50 dark:bg-rose-950/20 border-rose-200/60 dark:border-rose-800/40 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                      : isOrange
+                        ? "bg-amber-50/40 dark:bg-amber-950/20 border-amber-200/60 dark:border-amber-800/40 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                        : darkMode
+                          ? "bg-slate-800/50 border-slate-700/60 hover:bg-slate-800"
+                          : "bg-slate-50/70 border-slate-200/70 hover:bg-slate-100/80";
+
+                  return (
+                    <button
+                      key={pat.id}
+                      onClick={() => setSelectedPatientId(pat.id)}
+                      className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-center justify-between cursor-pointer ${rowBorderClass} ${rowBgClass}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                          isRed
+                            ? "bg-rose-600 text-white shadow-xs animate-pulse"
+                            : isOrange
+                              ? "bg-amber-500 text-white shadow-xs"
+                              : isSelected 
+                                ? "bg-slate-900 text-white dark:bg-white dark:text-zinc-900 shadow-xs" 
+                                : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+                        }`}>
+                          {pat.name.split(" ").map(n => n[0]).join("")}
                         </div>
-                        
-                        {/* Chief complaint subtitle */}
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                          <span className={isRed ? "text-rose-600 dark:text-rose-400 font-semibold" : "text-slate-600 dark:text-zinc-300"}>
-                            {pat.triage?.chiefComplaint || "General"}
-                          </span>
-                          {" • "}
-                          <span>{pat.id}</span>
-                        </p>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <h4 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
+                              {pat.name}
+                            </h4>
+                            {isRed && (
+                              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-pulse shrink-0" />
+                            )}
+                            {isOrange && (
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            )}
+                          </div>
+                          
+                          {/* Chief complaint subtitle */}
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            <span className={isRed ? "text-rose-600 dark:text-rose-400 font-semibold" : "text-slate-600 dark:text-zinc-300"}>
+                              {pat.triage?.chiefComplaint || "General Check-in"}
+                            </span>
+                            {" • "}
+                            <span>{pat.id}</span>
+                          </p>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="text-right shrink-0">
-                      {isRed ? (
-                        <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-rose-600 text-white shadow-xs tracking-wider uppercase inline-block">
-                          URGENT
-                        </span>
-                      ) : isOrange ? (
-                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500 text-white shadow-xs tracking-wider uppercase inline-block">
-                          VERY URGENT
-                        </span>
-                      ) : isYellow ? (
-                        <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 border border-yellow-300/50 dark:border-yellow-700/50 inline-block">
-                          Urgent
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 inline-block">
-                          Standard
-                        </span>
-                      )}
-                      <p className="text-[10px] text-slate-400 mt-1">{pat.timeWaiting}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                      <div className="text-right shrink-0">
+                        {isRed ? (
+                          <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-rose-600 text-white shadow-xs tracking-wider uppercase inline-block">
+                            URGENT
+                          </span>
+                        ) : isOrange ? (
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500 text-white shadow-xs tracking-wider uppercase inline-block">
+                            VERY URGENT
+                          </span>
+                        ) : isYellow ? (
+                          <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-300 border border-yellow-300/50 dark:border-yellow-700/50 inline-block">
+                            Urgent
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 inline-block">
+                            Standard
+                          </span>
+                        )}
+                        <p className="text-[10px] text-slate-400 mt-1">{pat.timeWaiting || "Just now"}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
         {/* Right Column: Selected Patient Details + Triage Survey Card + Vitals Cards + Trend Chart + History Table + Notes */}
         <div className="lg:col-span-8 space-y-6">
-          {selectedPatient && (
+          {selectedPatient ? (
             <>
               {/* Selected Patient Header */}
               <div className={`rounded-2xl p-6 border transition-all ${
@@ -321,7 +345,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        {selectedPatient.gender} • {selectedPatient.age} years old • {selectedPatient.inQueue ? "Walk-in OPD Queue" : "Past Consultation Record"}
+                        {selectedPatient.gender} • {selectedPatient.age} years old • {selectedPatient.inQueue ? "Walk-in OPD Queue" : "Registered Patient Record"}
                       </p>
                     </div>
                   </div>
@@ -412,7 +436,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
                     No vitals reading recorded yet for this session.
                   </p>
-                  <p className="text-xs text-slate-400 mt-1">Awaiting sensor capture...</p>
+                  <p className="text-xs text-slate-400 mt-1">Awaiting telemetry from patient sensor station...</p>
                 </div>
               )}
 
@@ -448,15 +472,32 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                   }`}
                 />
                 <div className="flex justify-end gap-3 mt-4">
-                  <button className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+                  <button className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-pointer">
                     Save Draft
                   </button>
-                  <button className="px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white shadow-sm">
+                  <button className="px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white shadow-sm cursor-pointer">
                     Complete Consultation & Generate Report
                   </button>
                 </div>
               </div>
             </>
+          ) : (
+            /* Selected Patient Empty State (When queue has 0 patients or none selected) */
+            <div className={`rounded-2xl p-12 sm:p-16 border text-center space-y-4 transition-all ${
+              darkMode ? "bg-slate-900/60 border-slate-800" : "bg-white border-slate-200 shadow-xs"
+            }`}>
+              <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-zinc-500 flex items-center justify-center mx-auto">
+                <UserCheck className="w-7 h-7" />
+              </div>
+              <div className="space-y-1.5 max-w-sm mx-auto">
+                <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                  No Patient Selected
+                </h3>
+                <p className="text-xs text-slate-400 dark:text-zinc-500 leading-relaxed font-normal">
+                  Patients will appear in the OPD Queue once they register and submit their symptom survey. Select a patient row to review their telemetry and triage records.
+                </p>
+              </div>
+            </div>
           )}
         </div>
       </main>

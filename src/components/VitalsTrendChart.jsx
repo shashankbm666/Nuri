@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import { TrendingUp, Info } from "lucide-react";
 
 export default function VitalsTrendChart({ history = [], darkMode }) {
@@ -7,8 +7,16 @@ export default function VitalsTrendChart({ history = [], darkMode }) {
 
   if (!history || history.length === 0) {
     return (
-      <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
-        No historical telemetry data available for this patient.
+      <div className="p-8 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs text-center space-y-2">
+        <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+          <TrendingUp className="w-4 h-4" />
+        </div>
+        <h4 className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+          No Longitudinal Telemetry Trend
+        </h4>
+        <p className="text-[11px] text-slate-400 dark:text-zinc-500 max-w-xs mx-auto">
+          Historical trend curves and normal range bands will render as successive sensor readings are recorded.
+        </p>
       </div>
     );
   }
