@@ -1,12 +1,14 @@
-﻿import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { HeartPulse, User, Stethoscope, ArrowRight, LogIn, CheckCircle2 } from "lucide-react";
+import { HeartPulse, User, Stethoscope, ArrowRight, CheckCircle2 } from "lucide-react";
 import ThemeToggle from "../components/ThemeToggle";
+import DoctorPasswordModal from "../components/DoctorPasswordModal";
 import { useAuth } from "../auth/AuthProvider";
 
 export default function LandingPage({ darkMode, setDarkMode }) {
   const navigate = useNavigate();
   const { isAuthenticated, user, loginWithRedirect } = useAuth();
+  const [showDoctorModal, setShowDoctorModal] = useState(false);
 
   const handlePatientClick = () => {
     if (isAuthenticated) {
@@ -20,6 +22,18 @@ export default function LandingPage({ darkMode, setDarkMode }) {
     <div className={`min-h-screen transition-colors duration-300 flex flex-col justify-between p-4 sm:p-6 md:p-10 ${
       darkMode ? "dark bg-black text-zinc-100" : "bg-[#fbfbfd] text-slate-800"
     }`}>
+      {/* Doctor password gate modal */}
+      {showDoctorModal && (
+        <DoctorPasswordModal
+          darkMode={darkMode}
+          onSuccess={() => {
+            setShowDoctorModal(false);
+            navigate("/doctor/dashboard");
+          }}
+          onClose={() => setShowDoctorModal(false)}
+        />
+      )}
+
       {/* Top Header */}
       <div className="w-full max-w-4xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -30,15 +44,14 @@ export default function LandingPage({ darkMode, setDarkMode }) {
             Nuri
           </span>
         </div>
-
         <ThemeToggle darkMode={darkMode} setDarkMode={setDarkMode} variant="button" />
       </div>
 
       {/* Main Centered Card */}
       <div className="w-full max-w-xl mx-auto my-auto py-8">
         <div className={`rounded-2xl p-6 sm:p-10 border transition-all duration-300 ${
-          darkMode 
-            ? "bg-zinc-900/90 border-zinc-800 shadow-[0_1px_3px_rgba(0,0,0,0.4)] text-zinc-100" 
+          darkMode
+            ? "bg-zinc-900/90 border-zinc-800 shadow-[0_1px_3px_rgba(0,0,0,0.4)] text-zinc-100"
             : "bg-white border-slate-200/90 shadow-[0_1px_3px_rgba(0,0,0,0.04)] text-slate-800"
         }`}>
           <div className="text-center mb-8">
@@ -51,12 +64,12 @@ export default function LandingPage({ darkMode, setDarkMode }) {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Patient Option with Auth0 Trigger */}
+            {/* Patient Option */}
             <button
               onClick={handlePatientClick}
               className={`group text-left rounded-xl p-5 border transition-all duration-200 cursor-pointer flex flex-col justify-between ${
-                darkMode 
-                  ? "bg-zinc-800/50 border-zinc-700/60 hover:bg-zinc-800 hover:border-zinc-500" 
+                darkMode
+                  ? "bg-zinc-800/50 border-zinc-700/60 hover:bg-zinc-800 hover:border-zinc-500"
                   : "bg-slate-50/70 border-slate-200/80 hover:bg-slate-100/80 hover:border-slate-300"
               }`}
             >
@@ -70,12 +83,9 @@ export default function LandingPage({ darkMode, setDarkMode }) {
                 </div>
                 <ArrowRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
               </div>
-
               <div>
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                    I'm a Patient
-                  </h3>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">I'm a Patient</h3>
                   {isAuthenticated && (
                     <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-0.5">
                       <CheckCircle2 className="w-3 h-3" /> Logged In
@@ -90,12 +100,12 @@ export default function LandingPage({ darkMode, setDarkMode }) {
               </div>
             </button>
 
-            {/* Doctor Option */}
+            {/* Doctor Option — opens password gate modal */}
             <button
-              onClick={() => navigate("/doctor/dashboard")}
+              onClick={() => setShowDoctorModal(true)}
               className={`group text-left rounded-xl p-5 border transition-all duration-200 cursor-pointer flex flex-col justify-between ${
-                darkMode 
-                  ? "bg-zinc-800/50 border-zinc-700/60 hover:bg-zinc-800 hover:border-zinc-500" 
+                darkMode
+                  ? "bg-zinc-800/50 border-zinc-700/60 hover:bg-zinc-800 hover:border-zinc-500"
                   : "bg-slate-50/70 border-slate-200/80 hover:bg-slate-100/80 hover:border-slate-300"
               }`}
             >
@@ -105,11 +115,8 @@ export default function LandingPage({ darkMode, setDarkMode }) {
                 </div>
                 <ArrowRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
               </div>
-
               <div>
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                  I'm a Doctor
-                </h3>
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">I'm a Doctor</h3>
                 <p className="text-xs text-slate-400 dark:text-zinc-400 mt-1 font-normal leading-relaxed">
                   View OPD patient queue and live telemetry records
                 </p>

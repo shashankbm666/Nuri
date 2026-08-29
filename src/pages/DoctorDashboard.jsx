@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
   Stethoscope, 
@@ -20,6 +20,7 @@ import VitalsTrendChart from "../components/VitalsTrendChart";
 import DoctorReadingHistory from "../components/DoctorReadingHistory";
 import PatientTriageDetailCard from "../components/PatientTriageDetailCard";
 import { useOpd } from "../context/OpdContext";
+import { useDoctorAuth } from "../auth/DoctorAuthContext";
 
 // MTS Triage Priority Weighting for Sorting
 const PRIORITY_WEIGHTS = {
@@ -30,13 +31,22 @@ const PRIORITY_WEIGHTS = {
   blue: 1
 };
 
+
 export default function DoctorDashboard({ darkMode, setDarkMode }) {
   const navigate = useNavigate();
   const { patients: allPatients } = useOpd();
+  const { logout: doctorLogout } = useDoctorAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPatientId, setSelectedPatientId] = useState(null);
   const [consultNotes, setConsultNotes] = useState("");
+
+  // Clear doctor session and return to landing page
+  const handleSwitchRole = () => {
+    doctorLogout();
+    navigate("/");
+  };
+
 
   // Queue patients sorted by priority tier first (Red -> Orange -> Yellow -> Green -> Blue), then by wait time
   const rawQueue = allPatients.filter(p => p.inQueue);
@@ -71,7 +81,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
       }`}>
         <div className="flex items-center gap-4">
           <button
-            onClick={() => navigate("/")}
+            onClick={handleSwitchRole}
             className={`p-2 rounded-xl border flex items-center gap-2 text-xs font-semibold transition-colors ${
               darkMode ? "border-slate-800 hover:bg-slate-800 text-slate-300" : "border-slate-200 hover:bg-slate-100 text-slate-600"
             }`}
