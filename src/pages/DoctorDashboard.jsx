@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
   Stethoscope, 
@@ -22,6 +22,9 @@ import PatientTriageDetailCard from "../components/PatientTriageDetailCard";
 import { useOpd } from "../context/OpdContext";
 import { useDoctorAuth } from "../auth/DoctorAuthContext";
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+const READING_POLL_INTERVAL = 10000; // Poll every 10s for live readings
+
 // MTS Triage Priority Weighting for Sorting
 const PRIORITY_WEIGHTS = {
   red: 5,
@@ -40,6 +43,10 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPatientId, setSelectedPatientId] = useState(null);
   const [consultNotes, setConsultNotes] = useState("");
+
+  // ── Backend readings state ─────────────────────────────────────────────────
+  const [backendReadings, setBackendReadings] = useState([]);
+  const pollRef = useRef(null);
 
   // Clear doctor session and return to landing page
   const handleSwitchRole = () => {
@@ -70,6 +77,57 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
   const selectedPatient = selectedPatientId 
     ? allPatients.find(p => p.id === selectedPatientId) 
     : (sortedQueue[0] || allPatients[0] || null);
+
+  // ── Fetch readings from backend for selected patient ───────────────────────
+  const fetchReadings = useCallback(async (auth0Sub) => {
+    if (!auth0Sub) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/patients/${encodeURIComponent(auth0Sub)}/readings?limit=50`);
+      if (res.ok) {
+        const json = await res.json();
+        setBackendReadings(json.data || []);
+      }
+    } catch {
+      // Silent fail — vitals just won't update this cycle
+    }
+  }, []);
+
+  // When selectedPatient changes, fetch readings + start polling
+  useEffect(() => {
+    clearInterval(pollRef.current);
+    setBackendReadings([]);
+
+    const sub = selectedPatient?.auth0Sub;
+    if (!sub) return;
+
+    fetchReadings(sub);
+    pollRef.current = setInterval(() => fetchReadings(sub), READING_POLL_INTERVAL);
+
+    return () => clearInterval(pollRef.current);
+  }, [selectedPatient?.auth0Sub, fetchReadings]);
+
+  // ── Derive vitals from backend readings ────────────────────────────────────
+  // Latest reading → vitals cards; full array → chart + history table
+  const latestReading = backendReadings.length > 0 ? backendReadings[0] : null;
+
+  const derivedVitals = latestReading ? {
+    heartRate: latestReading.heart_rate,
+    spO2: latestReading.spo2,
+    temperature: latestReading.temperature,
+    recordedAt: new Date(latestReading.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  } : selectedPatient?.vitals || null;
+
+  const derivedHistory = backendReadings.length > 0
+    ? backendReadings.map(r => ({
+        id: `read-${r.id}`,
+        timestamp: new Date(r.timestamp).toLocaleString([], { hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" }),
+        heartRate: r.heart_rate,
+        spO2: r.spo2,
+        temperature: r.temperature,
+        status: (r.heart_rate > 100 || r.heart_rate < 60 || r.spo2 < 95 || r.temperature > 37.5 || r.temperature < 36.0) ? "Abnormal" : "Normal"
+      }))
+    : (selectedPatient?.history || []);
+
 
   return (
     <div className={`min-h-screen transition-colors duration-300 flex flex-col ${
@@ -363,7 +421,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium text-slate-400">Captured:</span>
                     <span className="text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
-                      {selectedPatient.vitals ? selectedPatient.vitals.recordedAt : "Pending"}
+                      {derivedVitals ? derivedVitals.recordedAt : "Pending"}
                     </span>
                   </div>
                 </div>
@@ -376,7 +434,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
               />
 
               {/* 2. Vitals Telemetry Triad */}
-              {selectedPatient.vitals ? (
+              {derivedVitals ? (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className={`rounded-2xl p-5 border transition-all ${
                     darkMode ? "bg-slate-900/80 border-slate-800" : "bg-white/95 border-slate-200 shadow-xs"
@@ -387,11 +445,11 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                     </div>
                     <div className="flex items-baseline gap-2">
                       <span className={`text-3xl font-extrabold font-mono ${
-                        selectedPatient.vitals.heartRate < 60 || selectedPatient.vitals.heartRate > 100
+                        derivedVitals.heartRate < 60 || derivedVitals.heartRate > 100
                           ? "text-rose-600 dark:text-rose-400"
                           : "text-slate-900 dark:text-white"
                       }`}>
-                        {selectedPatient.vitals.heartRate}
+                        {derivedVitals.heartRate}
                       </span>
                       <span className="text-sm font-semibold text-slate-400">bpm</span>
                     </div>
@@ -407,11 +465,11 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                     </div>
                     <div className="flex items-baseline gap-2">
                       <span className={`text-3xl font-extrabold font-mono ${
-                        selectedPatient.vitals.spO2 < 95
+                        derivedVitals.spO2 < 95
                           ? "text-amber-600 dark:text-amber-400"
                           : "text-slate-900 dark:text-white"
                       }`}>
-                        {selectedPatient.vitals.spO2}
+                        {derivedVitals.spO2}
                       </span>
                       <span className="text-sm font-semibold text-slate-400">%</span>
                     </div>
@@ -427,11 +485,11 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                     </div>
                     <div className="flex items-baseline gap-2">
                       <span className={`text-3xl font-extrabold font-mono ${
-                        selectedPatient.vitals.temperature < 36.1 || selectedPatient.vitals.temperature > 37.2
+                        derivedVitals.temperature < 36.1 || derivedVitals.temperature > 37.2
                           ? "text-amber-600 dark:text-amber-400"
                           : "text-slate-900 dark:text-white"
                       }`}>
-                        {selectedPatient.vitals.temperature}
+                        {derivedVitals.temperature}
                       </span>
                       <span className="text-sm font-semibold text-slate-400">°C</span>
                     </div>
@@ -452,13 +510,13 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
 
               {/* 3. Longitudinal Vitals Trend Chart */}
               <VitalsTrendChart 
-                history={selectedPatient.history || []} 
+                history={derivedHistory} 
                 darkMode={darkMode} 
               />
 
               {/* 4. Telemetry Reading History Table */}
               <DoctorReadingHistory 
-                history={selectedPatient.history || []} 
+                history={derivedHistory} 
                 darkMode={darkMode} 
               />
 
