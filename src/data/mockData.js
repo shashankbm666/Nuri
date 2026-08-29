@@ -1,15 +1,3 @@
-﻿export const initialPatient = {
-  name: "Eleanor Vance",
-  patientId: "MED-89421",
-  gender: "Female",
-  age: 38,
-  weight: "63 kg",
-  height: "168 cm",
-  status: "Pre-Consultation",
-  bloodPressure: "118/76 mmHg",
-  registeredAt: "10:30 AM"
-};
-
 // Distinct, independent 10-point telemetry arrays per metric for the Patient Dashboard
 export const initialSparklines = {
   heartRate: [72, 75, 78, 71, 74, 76, 73, 75, 77, 74],

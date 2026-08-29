@@ -13,21 +13,27 @@ const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
 
 const isAuth0Configured = 
-  domain && 
-  clientId && 
-  !domain.includes("sample") && 
-  !clientId.includes("placeholder");
+  Boolean(domain && clientId && !domain.includes("sample") && !clientId.includes("placeholder"));
 
 const CustomAuthContext = createContext(null);
 
 // Wrapper for when real Auth0 is active
 function RealAuthBridge({ children }) {
   const auth0 = useAuth0();
+  
+  // Clean up any stale mock session keys when real Auth0 is active
+  useEffect(() => {
+    if (auth0.isAuthenticated) {
+      localStorage.removeItem("nuri_mock_auth");
+      localStorage.removeItem("nuri_mock_user");
+    }
+  }, [auth0.isAuthenticated]);
+
   return (
     <CustomAuthContext.Provider value={{
       isAuthenticated: auth0.isAuthenticated,
       isLoading: auth0.isLoading,
-      user: auth0.user,
+      user: auth0.user, // Real Auth0 user object directly from SDK
       loginWithRedirect: auth0.loginWithRedirect,
       logout: (options) => auth0.logout({ logoutParams: { returnTo: window.location.origin }, ...options }),
       error: auth0.error,
@@ -38,7 +44,7 @@ function RealAuthBridge({ children }) {
   );
 }
 
-// Fallback provider for local testing when .env holds placeholder credentials
+// Fallback provider only for local offline sandbox testing when env credentials are intentionally absent
 function MockAuthFallbackProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return localStorage.getItem("nuri_mock_auth") === "true";
@@ -49,14 +55,15 @@ function MockAuthFallbackProvider({ children }) {
     return saved ? JSON.parse(saved) : null;
   });
 
-  const loginWithRedirect = async (opts) => {
+  const loginWithRedirect = async () => {
     setIsLoading(true);
     setTimeout(() => {
+      // Dynamic fallback without any hardcoded/stale mock emails
       const mockUser = {
-        name: "Eleanor Vance",
-        email: "eleanor.vance@example.com",
-        picture: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-        sub: "auth0|64f128e9421mock"
+        name: "Verified Patient",
+        email: "",
+        picture: null,
+        sub: `auth0|local_${Math.floor(100000 + Math.random() * 900000)}`
       };
       localStorage.setItem("nuri_mock_auth", "true");
       localStorage.setItem("nuri_mock_user", JSON.stringify(mockUser));
