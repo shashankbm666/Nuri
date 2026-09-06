@@ -14,7 +14,8 @@ import {
   AlertTriangle,
   Inbox,
   UserCheck,
-  Loader2
+  Loader2,
+  Trash2
 } from "lucide-react";
 import ThemeToggle from "../components/ThemeToggle";
 import VitalsTrendChart from "../components/VitalsTrendChart";
@@ -38,7 +39,7 @@ const PRIORITY_WEIGHTS = {
 
 export default function DoctorDashboard({ darkMode, setDarkMode }) {
   const navigate = useNavigate();
-  const { patients: allPatients, queueLoading } = useOpd();
+  const { patients: allPatients, queueLoading, dischargePatient } = useOpd();
   const { logout: doctorLogout } = useDoctorAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -152,6 +153,28 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
       }
     } catch (err) {
       console.error("Failed to assign reading", err);
+    }
+  };
+
+  const handleDeletePatient = async (patientId, auth0Sub) => {
+    if (!window.confirm("Are you sure you want to permanently delete this patient record and all associated readings? This cannot be undone.")) {
+      return;
+    }
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/patients/${encodeURIComponent(auth0Sub)}`, {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        dischargePatient(patientId);
+        if (selectedPatientId === patientId) {
+          setSelectedPatientId(null);
+        }
+      } else {
+        alert("Failed to delete patient");
+      }
+    } catch (err) {
+      console.error("Failed to delete patient", err);
+      alert("Error deleting patient");
     }
   };
 
@@ -530,11 +553,20 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-slate-400">Captured:</span>
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
-                      {derivedVitals ? derivedVitals.recordedAt : "Pending"}
-                    </span>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-slate-400">Captured:</span>
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
+                        {derivedVitals ? derivedVitals.recordedAt : "Pending"}
+                      </span>
+                    </div>
+                    <button 
+                      onClick={() => handleDeletePatient(selectedPatient.id, selectedPatient.auth0Sub)}
+                      className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors cursor-pointer"
+                      title="Delete Patient Record"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               </div>

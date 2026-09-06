@@ -105,6 +105,39 @@ app.put("/api/patients/:sub", async (req, res) => {
   }
 });
 
+// ── DELETE /api/patients/:sub ─────────────────────────────────────────────────
+app.delete("/api/patients/:sub", async (req, res) => {
+  const { sub } = req.params;
+  if (!sub) return res.status(400).json({ error: "auth0_sub is required" });
+  
+  try {
+    // Start transaction
+    await pool.query("BEGIN");
+    
+    // First find the patient to get their postgres integer ID (needed for readings)
+    const patientRes = await pool.query("SELECT id FROM patients WHERE auth0_sub = $1", [sub]);
+    if (patientRes.rows.length === 0) {
+      await pool.query("ROLLBACK");
+      return res.status(404).json({ error: "Patient not found" });
+    }
+    
+    const patientId = patientRes.rows[0].id;
+    
+    // Delete readings
+    await pool.query("DELETE FROM readings WHERE patient_id = $1", [patientId]);
+    
+    // Delete patient
+    await pool.query("DELETE FROM patients WHERE id = $1", [patientId]);
+    
+    await pool.query("COMMIT");
+    res.json({ success: true, message: "Patient and associated readings deleted successfully" });
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    console.error("[DELETE /api/patients/:sub]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── POST /api/readings ────────────────────────────────────────────────────────
 // Accepts a telemetry reading. If patient_id or auth0_sub is provided, links to patient.
 // Otherwise, records as unassigned (patient_id = NULL).
