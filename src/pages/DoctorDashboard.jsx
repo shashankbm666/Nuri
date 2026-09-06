@@ -23,6 +23,7 @@ import DoctorReadingHistory from "../components/DoctorReadingHistory";
 import PatientTriageDetailCard from "../components/PatientTriageDetailCard";
 import { useOpd } from "../context/OpdContext";
 import { useDoctorAuth } from "../auth/DoctorAuthContext";
+import { fetchWithRetry } from "../utils/fetchWithRetry";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 const READING_POLL_INTERVAL = 10000; // Poll every 10s for live readings
@@ -39,12 +40,13 @@ const PRIORITY_WEIGHTS = {
 
 export default function DoctorDashboard({ darkMode, setDarkMode }) {
   const navigate = useNavigate();
-  const { patients: allPatients, queueLoading, dischargePatient } = useOpd();
+  const { patients: allPatients, queueLoading, serverWaking, dischargePatient } = useOpd();
   const { logout: doctorLogout } = useDoctorAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPatientId, setSelectedPatientId] = useState(null);
   const [consultNotes, setConsultNotes] = useState("");
+  const [readingsWaking, setReadingsWaking] = useState(false);
 
   // ── Backend readings state ─────────────────────────────────────────────────
   const [backendReadings, setBackendReadings] = useState([]);
@@ -85,25 +87,30 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
   const fetchReadings = useCallback(async (auth0Sub) => {
     if (!auth0Sub) return;
     try {
-      const res = await fetch(`${BACKEND_URL}/api/patients/${encodeURIComponent(auth0Sub)}/readings?limit=50`);
+      const res = await fetchWithRetry(
+        `${BACKEND_URL}/api/patients/${encodeURIComponent(auth0Sub)}/readings?limit=50`,
+        {},
+        { onSlow: () => setReadingsWaking(true) }
+      );
+      setReadingsWaking(false);
       if (res.ok) {
         const json = await res.json();
         setBackendReadings(json.data || []);
       }
     } catch {
-      // Silent fail
+      setReadingsWaking(false);
     }
   }, []);
 
   const fetchUnassignedReadings = useCallback(async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/readings/unassigned`);
+      const res = await fetchWithRetry(`${BACKEND_URL}/api/readings/unassigned`);
       if (res.ok) {
         const json = await res.json();
         setUnassignedReadings(json.data || []);
       }
     } catch {
-      // Silent fail
+      // Silent fail — unassigned panel is non-critical
     }
   }, []);
 
@@ -205,6 +212,15 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
     <div className={`min-h-screen transition-colors duration-300 flex flex-col ${
       darkMode ? "dark bg-slate-950 text-slate-100" : "bg-slate-50/80 text-slate-800"
     }`}>
+
+      {/* Cold-start / Render waking banner */}
+      {(serverWaking || readingsWaking) && (
+        <div className="w-full bg-amber-500/10 border-b border-amber-400/30 px-4 py-2 flex items-center gap-2.5 text-amber-700 dark:text-amber-300 text-xs font-medium">
+          <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+          <span>Connecting to server… this may take up to a minute if it's been idle. Hang tight.</span>
+        </div>
+      )}
+
       {/* Doctor Header */}
       <header className={`sticky top-0 z-30 flex items-center justify-between px-6 py-4 border-b backdrop-blur-md ${
         darkMode ? "bg-slate-950/80 border-slate-800/80" : "bg-white/80 border-slate-200/80 shadow-2xs"

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { generatePatientId } from "../components/PatientOnboardingModal";
 import { getPatientTriageSurvey } from "../services/triageService";
+import { fetchWithRetry } from "../utils/fetchWithRetry";
 
 /**
  * ============================================================================
@@ -23,12 +24,18 @@ const OpdContext = createContext(null);
 export function OpdProvider({ children }) {
   const [patients, setPatients] = useState([]);
   const [queueLoading, setQueueLoading] = useState(true);
+  const [serverWaking, setServerWaking] = useState(false);
 
   // ── Seed queue from backend on mount ─────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/patients`);
+        const res = await fetchWithRetry(
+          `${BACKEND_URL}/api/patients`,
+          {},
+          { onSlow: () => setServerWaking(true) }
+        );
+        setServerWaking(false);
         if (!res.ok) return;
         const { data } = await res.json();
         if (!Array.isArray(data) || data.length === 0) return;
@@ -68,6 +75,7 @@ export function OpdProvider({ children }) {
         setPatients(seeded);
       } catch (err) {
         console.error("[OpdContext] Failed to seed queue from backend:", err.message);
+        setServerWaking(false);
       } finally {
         setQueueLoading(false);
       }
@@ -167,6 +175,7 @@ export function OpdProvider({ children }) {
         patients,
         setPatients,
         queueLoading,
+        serverWaking,
         registerOrUpdatePatientInQueue,
         dischargePatient,
         backendUrl: BACKEND_URL,

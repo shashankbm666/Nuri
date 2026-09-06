@@ -20,7 +20,7 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) callback(null, true);
     else callback(new Error(`CORS blocked origin: ${origin}`));
   },
-  methods: ["GET", "POST", "PUT", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
 }));
@@ -193,14 +193,17 @@ app.post("/api/readings", async (req, res) => {
 });
 
 // ── GET /api/readings/unassigned ──────────────────────────────────────────────
-// Returns all readings where patient_id IS NULL
+// Returns the 50 most recent unassigned readings (patient_id IS NULL)
 app.get("/api/readings/unassigned", async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   try {
     const result = await pool.query(
       `SELECT id, heart_rate, spo2, temperature, source, timestamp
        FROM readings
        WHERE patient_id IS NULL
-       ORDER BY timestamp DESC`
+       ORDER BY timestamp DESC
+       LIMIT $1`,
+      [limit]
     );
     res.json({ data: result.rows, count: result.rows.length });
   } catch (err) {

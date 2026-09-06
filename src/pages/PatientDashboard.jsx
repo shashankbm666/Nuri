@@ -11,6 +11,7 @@ import { getPatientTriageSurvey } from "../services/triageService";
 import { useAuth } from "../auth/AuthProvider";
 import { useOpd } from "../context/OpdContext";
 import { ClipboardList, CheckCircle2, ChevronRight, Loader2 } from "lucide-react";
+import { fetchWithRetry } from "../utils/fetchWithRetry";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
@@ -28,6 +29,8 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
 
+  const [serverWaking, setServerWaking] = useState(false);
+
   /**
    * On mount: check backend for an existing patient record keyed to Auth0 sub.
    * - Found (200)  → load their real saved profile, skip onboarding.
@@ -41,7 +44,12 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
     const checkBackend = async () => {
       setProfileLoading(true);
       try {
-        const res = await fetch(`${BACKEND_URL}/api/patients/${encodeURIComponent(user.sub)}`);
+        const res = await fetchWithRetry(
+          `${BACKEND_URL}/api/patients/${encodeURIComponent(user.sub)}`,
+          {},
+          { onSlow: () => setServerWaking(true) }
+        );
+        setServerWaking(false);
 
         if (res.ok) {
           // Returning user — load their persisted profile
@@ -107,6 +115,7 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
         }
       } catch (err) {
         console.error("[PatientDashboard] Could not reach backend:", err.message);
+        setServerWaking(false);
         // Network error — graceful fallback
         setPatient({
           patientId: generatePatientId(user.sub),
@@ -206,6 +215,11 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
           <p className="text-sm text-slate-500 dark:text-zinc-400">Loading your profile…</p>
+          {serverWaking && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 font-medium mt-2 max-w-xs text-center">
+              Connecting to server… this may take up to a minute if it's been idle.
+            </p>
+          )}
         </div>
       </div>
     );

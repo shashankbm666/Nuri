@@ -1,14 +1,21 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { HeartPulse, User, Stethoscope, ArrowRight, CheckCircle2 } from "lucide-react";
 import ThemeToggle from "../components/ThemeToggle";
 import DoctorPasswordModal from "../components/DoctorPasswordModal";
 import { useAuth } from "../auth/AuthProvider";
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+
 export default function LandingPage({ darkMode, setDarkMode }) {
   const navigate = useNavigate();
   const { isAuthenticated, user, loginWithRedirect } = useAuth();
   const [showDoctorModal, setShowDoctorModal] = useState(false);
+
+  // Silently wake the Render backend early
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/api/health`).catch(() => {});
+  }, []);
 
   const handlePatientClick = () => {
     if (isAuthenticated) {
