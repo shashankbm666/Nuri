@@ -13,7 +13,8 @@ import {
   X,
   AlertTriangle,
   Inbox,
-  UserCheck
+  UserCheck,
+  Loader2
 } from "lucide-react";
 import ThemeToggle from "../components/ThemeToggle";
 import VitalsTrendChart from "../components/VitalsTrendChart";
@@ -37,7 +38,7 @@ const PRIORITY_WEIGHTS = {
 
 export default function DoctorDashboard({ darkMode, setDarkMode }) {
   const navigate = useNavigate();
-  const { patients: allPatients } = useOpd();
+  const { patients: allPatients, queueLoading } = useOpd();
   const { logout: doctorLogout } = useDoctorAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -321,7 +322,15 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
               </span>
             </div>
 
-            {sortedQueue.length === 0 ? (
+            {queueLoading ? (
+              /* Loading state while queue pre-fetches from backend */
+              <div className="py-8 px-4 text-center space-y-2.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                </div>
+                <p className="text-xs text-slate-400 dark:text-zinc-500">Loading patient queue…</p>
+              </div>
+            ) : sortedQueue.length === 0 ? (
               /* OPD Queue Empty State */
               <div className="py-8 px-4 text-center space-y-2.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
                 <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">

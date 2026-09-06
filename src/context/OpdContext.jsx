@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { generatePatientId } from "../components/PatientOnboardingModal";
+import { getPatientTriageSurvey } from "../services/triageService";
 
 /**
  * ============================================================================
@@ -6,14 +8,12 @@ import React, { createContext, useContext, useState, useCallback } from "react";
  * ============================================================================
  *
  * Data source of truth: the Nuri backend (PostgreSQL via Render).
- * This context NO LONGER uses localStorage as primary storage or falls back
- * to any mock/hardcoded patient arrays.
+ * On mount the OpdProvider fetches ALL registered patients from GET /api/patients
+ * and seeds the queue — so the Doctor Dashboard survives page refreshes.
  *
- * - The OPD queue is populated ONLY by real patients who have completed
- *   onboarding (POST /api/patients) and submitted their triage survey.
- * - registerOrUpdatePatientInQueue() deduplicates by auth0Sub so a returning
- *   user never creates a second entry.
- * - localStorage is NOT used for patient data (only transient UI state if needed).
+ * - registerOrUpdatePatientInQueue() deduplicates by auth0Sub.
+ * - Triage is restored from localStorage (keyed by deterministic MED-XXXXX id).
+ * - localStorage is NOT used for patient identity — only triage survey records.
  */
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
@@ -21,9 +21,58 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 const OpdContext = createContext(null);
 
 export function OpdProvider({ children }) {
-  // In-memory queue: populated only by real registrations this session.
-  // On refresh the doctor re-fetches from the backend (future step).
   const [patients, setPatients] = useState([]);
+  const [queueLoading, setQueueLoading] = useState(true);
+
+  // ── Seed queue from backend on mount ─────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/patients`);
+        if (!res.ok) return;
+        const { data } = await res.json();
+        if (!Array.isArray(data) || data.length === 0) return;
+
+        const seeded = data.map((row) => {
+          const patientId = generatePatientId(row.auth0_sub);
+          const triage = getPatientTriageSurvey(patientId);
+
+          return {
+            id: patientId,
+            auth0Sub: row.auth0_sub,
+            name: row.full_name,
+            age: row.age || "—",
+            gender: row.gender || "Unknown",
+            weight: row.weight_kg ? `${row.weight_kg} kg` : null,
+            height: row.height_cm ? `${row.height_cm} cm` : null,
+            timeWaiting: "—",
+            timeWaitingMinutes: 0,
+            inQueue: true,
+            status: "Ready for Consult",
+            triage: triage
+              ? {
+                  patientId,
+                  chiefComplaint: triage.chiefComplaint,
+                  redFlags: triage.redFlags || {},
+                  severityRating: triage.severityRating || 1,
+                  additionalSymptoms: triage.additionalSymptoms || [],
+                  computedPriority: triage.computedPriority || "green",
+                  submittedAt: triage.submittedAt || new Date().toISOString(),
+                }
+              : null,
+            vitals: null,
+            history: [],
+          };
+        });
+
+        setPatients(seeded);
+      } catch (err) {
+        console.error("[OpdContext] Failed to seed queue from backend:", err.message);
+      } finally {
+        setQueueLoading(false);
+      }
+    })();
+  }, []); // run once on mount
 
   /**
    * Adds or updates a patient in the OPD Triage Queue.
@@ -117,6 +166,7 @@ export function OpdProvider({ children }) {
       value={{
         patients,
         setPatients,
+        queueLoading,
         registerOrUpdatePatientInQueue,
         dischargePatient,
         backendUrl: BACKEND_URL,
