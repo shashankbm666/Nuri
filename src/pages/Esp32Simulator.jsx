@@ -193,47 +193,56 @@ export default function Esp32Simulator() {
 
   useEffect(() => () => clearInterval(intervalRef.current), []);
 
-  // ── Generate Trend Batch
+  // ── Generate Trend Batch — single batch request, no real-time delays
   const handleGenerateTrend = useCallback(async () => {
     if (!selectedPatientId) { setError("Select a patient for trend generation"); return; }
     setError("");
     setTrendBusy(true);
     setTrendResult(null);
 
-    const batch = generateTrendBatch();
-    let sent = 0;
-    let failed = 0;
+    // Build all readings in memory first — timestamps are historical, not real-time
+    const batch = generateTrendBatch().map(r => ({
+      patient_id: Number(selectedPatientId),
+      heart_rate: r.heart_rate,
+      spo2: r.spo2,
+      temperature: r.temperature,
+      source: "trend_batch",
+      timestamp: r.timestamp,
+    }));
 
-    for (const reading of batch) {
-      const ts = new Date(reading.timestamp).toLocaleTimeString();
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/readings`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            patient_id: Number(selectedPatientId),
-            heart_rate: reading.heart_rate,
-            spo2: reading.spo2,
-            temperature: reading.temperature,
-            source: "trend_batch",
-          }),
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          failed++;
-          setLog(prev => [...prev, { ts, status: "error", code: res.status, message: json.error || `HTTP ${res.status}`, label: "TREND", ...reading }]);
-        } else {
-          sent++;
-          setLog(prev => [...prev, { ts, status: "ok", code: res.status, label: "TREND", ...reading }]);
-        }
-      } catch (err) {
-        failed++;
-        setLog(prev => [...prev, { ts: new Date().toLocaleTimeString(), status: "error", code: 0, message: err.message, label: "TREND", ...reading }]);
+    try {
+      // Single POST — all readings in one atomic DB transaction
+      const res = await fetch(`${BACKEND_URL}/api/readings/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ readings: batch }),
+      });
+      const json = await res.json();
+
+      if (res.ok) {
+        const ts = new Date().toLocaleTimeString();
+        setTrendResult({ sent: json.inserted, failed: 0 });
+        // Add a single summary log entry instead of one per reading
+        setLog(prev => [...prev, {
+          ts,
+          status: "ok",
+          code: res.status,
+          label: "TREND BATCH",
+          heart_rate: `${batch[0].heart_rate}…${batch[batch.length-1].heart_rate}`,
+          spo2: `${batch[0].spo2}…${batch[batch.length-1].spo2}`,
+          temperature: `${batch[0].temperature}…${batch[batch.length-1].temperature}`,
+          batchSummary: `${json.inserted} readings inserted`,
+        }]);
+      } else {
+        setTrendResult({ sent: 0, failed: batch.length });
+        setError(`Batch failed: ${json.error || `HTTP ${res.status}`}`);
       }
+    } catch (err) {
+      setTrendResult({ sent: 0, failed: batch.length });
+      setError(`Network error: ${err.message}`);
+    } finally {
+      setTrendBusy(false);
     }
-
-    setTrendBusy(false);
-    setTrendResult({ sent, failed });
   }, [selectedPatientId]);
 
   const selectedPatient = patients.find(p => String(p.id) === selectedPatientId);

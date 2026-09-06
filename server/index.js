@@ -20,7 +20,7 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) callback(null, true);
     else callback(new Error(`CORS blocked origin: ${origin}`));
   },
-  methods: ["GET", "POST", "PUT", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
 }));
@@ -188,6 +188,71 @@ app.post("/api/readings", async (req, res) => {
     res.status(201).json({ data: result.rows[0] });
   } catch (err) {
     console.error("[POST /api/readings]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/readings/batch ──────────────────────────────────────────────────
+// Accepts an array of readings and inserts them all in one DB transaction.
+// Each reading: { patient_id, heart_rate, spo2, temperature, source, timestamp }
+// Used by the ESP32 Simulator "Generate Trend Data" feature.
+app.post("/api/readings/batch", async (req, res) => {
+  const { readings } = req.body;
+
+  if (!Array.isArray(readings) || readings.length === 0)
+    return res.status(400).json({ error: "readings must be a non-empty array" });
+
+  if (readings.length > 100)
+    return res.status(400).json({ error: "Maximum 100 readings per batch" });
+
+  // Validate each reading
+  const validated = [];
+  const validationErrors = [];
+
+  for (let i = 0; i < readings.length; i++) {
+    const { patient_id, heart_rate, spo2, temperature, source, timestamp } = readings[i];
+
+    if (heart_rate == null || spo2 == null || temperature == null) {
+      validationErrors.push(`readings[${i}]: heart_rate, spo2, and temperature are required`);
+      continue;
+    }
+
+    const hr = parseFloat(heart_rate);
+    const sp = parseFloat(spo2);
+    const tp = parseFloat(temperature);
+
+    if (isNaN(hr) || hr < 30 || hr > 220) { validationErrors.push(`readings[${i}]: heart_rate out of range (30-220)`); continue; }
+    if (isNaN(sp) || sp < 50 || sp > 100)  { validationErrors.push(`readings[${i}]: spo2 out of range (50-100)`); continue; }
+    if (isNaN(tp) || tp < 30 || tp > 42)   { validationErrors.push(`readings[${i}]: temperature out of range (30-42)`); continue; }
+
+    validated.push({ patient_id: patient_id || null, hr, sp, tp, source: source || "esp32", timestamp: timestamp || null });
+  }
+
+  if (validationErrors.length > 0)
+    return res.status(422).json({ error: "Validation failed", details: validationErrors });
+
+  try {
+    await pool.query("BEGIN");
+    const inserted = [];
+    for (const r of validated) {
+      const result = r.timestamp
+        ? await pool.query(
+            `INSERT INTO readings (patient_id, heart_rate, spo2, temperature, source, timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, timestamp`,
+            [r.patient_id, r.hr, r.sp, r.tp, r.source, r.timestamp]
+          )
+        : await pool.query(
+            `INSERT INTO readings (patient_id, heart_rate, spo2, temperature, source)
+             VALUES ($1, $2, $3, $4, $5) RETURNING id, timestamp`,
+            [r.patient_id, r.hr, r.sp, r.tp, r.source]
+          );
+      inserted.push(result.rows[0]);
+    }
+    await pool.query("COMMIT");
+    res.status(201).json({ inserted: inserted.length, data: inserted });
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    console.error("[POST /api/readings/batch]", err.message);
     res.status(500).json({ error: "Internal server error" });
   }
 });
