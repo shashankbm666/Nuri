@@ -106,13 +106,11 @@ app.put("/api/patients/:sub", async (req, res) => {
 });
 
 // ── POST /api/readings ────────────────────────────────────────────────────────
-// Accepts a telemetry reading linked to a patient by auth0_sub.
-// Validates physiological ranges per clinical safe limits.
-// ⚠️  SOURCE: ESP32 Simulator (temporary testing tool) or real ESP32 hardware.
+// Accepts a telemetry reading. If patient_id or auth0_sub is provided, links to patient.
+// Otherwise, records as unassigned.
 app.post("/api/readings", async (req, res) => {
-  const { auth0_sub, heart_rate, spo2, temperature, source } = req.body;
+  const { auth0_sub, patient_id: req_patient_id, heart_rate, spo2, temperature, source } = req.body;
 
-  if (!auth0_sub) return res.status(400).json({ error: "auth0_sub is required" });
   if (heart_rate == null || spo2 == null || temperature == null)
     return res.status(400).json({ error: "heart_rate, spo2, and temperature are required" });
 
@@ -124,23 +122,69 @@ app.post("/api/readings", async (req, res) => {
   if (isNaN(hr) || hr < 30 || hr > 220) errors.push("heart_rate must be 30–220 bpm");
   if (isNaN(sp) || sp < 50 || sp > 100)  errors.push("spo2 must be 50–100 %");
   if (isNaN(tp) || tp < 30 || tp > 42)   errors.push("temperature must be 30–42 °C");
-  if (errors.length) return res.status(400).json({ error: "Physiological range violation", details: errors });
+  if (errors.length) return res.status(422).json({ error: "Physiological range violation", details: errors });
 
   try {
-    // Resolve patient postgres ID from auth0_sub
-    const patResult = await pool.query("SELECT id FROM patients WHERE auth0_sub = $1", [auth0_sub]);
-    if (patResult.rows.length === 0)
-      return res.status(404).json({ error: "Patient not found — register the patient first" });
+    let final_patient_id = null;
 
-    const patient_id = patResult.rows[0].id;
+    if (req_patient_id) {
+      final_patient_id = req_patient_id;
+    } else if (auth0_sub) {
+      // Resolve patient postgres ID from auth0_sub
+      const patResult = await pool.query("SELECT id FROM patients WHERE auth0_sub = $1", [auth0_sub]);
+      if (patResult.rows.length > 0) {
+        final_patient_id = patResult.rows[0].id;
+      } else {
+        return res.status(404).json({ error: "Patient not found for the given auth0_sub" });
+      }
+    }
+
     const result = await pool.query(
       `INSERT INTO readings (patient_id, heart_rate, spo2, temperature, source)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [patient_id, hr, sp, tp, source || "esp32_simulator"]
+      [final_patient_id, hr, sp, tp, source || "esp32"]
     );
     res.status(201).json({ data: result.rows[0] });
   } catch (err) {
     console.error("[POST /api/readings]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/readings/unassigned ──────────────────────────────────────────────
+// Returns all readings where patient_id IS NULL
+app.get("/api/readings/unassigned", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, heart_rate, spo2, temperature, source, timestamp
+       FROM readings
+       WHERE patient_id IS NULL
+       ORDER BY timestamp DESC`
+    );
+    res.json({ data: result.rows, count: result.rows.length });
+  } catch (err) {
+    console.error("[GET /api/readings/unassigned]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── PATCH /api/readings/:id/assign ────────────────────────────────────────────
+// Assigns an unassigned reading to a patient
+app.patch("/api/readings/:id/assign", async (req, res) => {
+  const { id } = req.params;
+  const { patient_id } = req.body;
+
+  if (!patient_id) return res.status(400).json({ error: "patient_id is required" });
+
+  try {
+    const result = await pool.query(
+      `UPDATE readings SET patient_id = $1 WHERE id = $2 RETURNING *`,
+      [patient_id, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: "Reading not found" });
+    res.json({ data: result.rows[0] });
+  } catch (err) {
+    console.error("[PATCH /api/readings/:id/assign]", err.message);
     res.status(500).json({ error: "Internal server error" });
   }
 });

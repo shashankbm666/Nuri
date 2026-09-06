@@ -46,6 +46,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
 
   // ── Backend readings state ─────────────────────────────────────────────────
   const [backendReadings, setBackendReadings] = useState([]);
+  const [unassignedReadings, setUnassignedReadings] = useState([]);
   const pollRef = useRef(null);
 
   // Clear doctor session and return to landing page
@@ -88,7 +89,19 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
         setBackendReadings(json.data || []);
       }
     } catch {
-      // Silent fail — vitals just won't update this cycle
+      // Silent fail
+    }
+  }, []);
+
+  const fetchUnassignedReadings = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/readings/unassigned`);
+      if (res.ok) {
+        const json = await res.json();
+        setUnassignedReadings(json.data || []);
+      }
+    } catch {
+      // Silent fail
     }
   }, []);
 
@@ -96,15 +109,50 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
   useEffect(() => {
     clearInterval(pollRef.current);
     setBackendReadings([]);
+    fetchUnassignedReadings();
 
     const sub = selectedPatient?.auth0Sub;
-    if (!sub) return;
+    
+    if (sub) {
+      fetchReadings(sub);
+    }
 
-    fetchReadings(sub);
-    pollRef.current = setInterval(() => fetchReadings(sub), READING_POLL_INTERVAL);
+    pollRef.current = setInterval(() => {
+      if (sub) fetchReadings(sub);
+      fetchUnassignedReadings();
+    }, READING_POLL_INTERVAL);
 
     return () => clearInterval(pollRef.current);
-  }, [selectedPatient?.auth0Sub, fetchReadings]);
+  }, [selectedPatient?.auth0Sub, fetchReadings, fetchUnassignedReadings]);
+
+  // ── Assign Reading ─────────────────────────────────────────────────────────
+  // auth0Sub is used in the select option values; we resolve the postgres integer id here
+  const assignReading = async (readingId, auth0Sub) => {
+    try {
+      // Resolve postgres patient id from auth0Sub
+      const patRes = await fetch(`${BACKEND_URL}/api/patients/${encodeURIComponent(auth0Sub)}`);
+      if (!patRes.ok) { console.error("Could not resolve patient for assignment"); return; }
+      const patJson = await patRes.json();
+      const postgresPatientId = patJson.data?.id;
+      if (!postgresPatientId) return;
+
+      const res = await fetch(`${BACKEND_URL}/api/readings/${readingId}/assign`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patient_id: postgresPatientId }),
+      });
+      if (res.ok) {
+        // Optimistically remove from unassigned list
+        setUnassignedReadings(prev => prev.filter(r => r.id !== readingId));
+        // If the assigned patient is currently selected, refresh their readings
+        if (selectedPatient?.auth0Sub === auth0Sub) {
+          fetchReadings(auth0Sub);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to assign reading", err);
+    }
+  };
 
   // ── Derive vitals from backend readings ────────────────────────────────────
   // Latest reading → vitals cards; full array → chart + history table
@@ -386,6 +434,61 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
               </div>
             )}
           </div>
+
+          {/* Unassigned Readings Panel */}
+          {unassignedReadings.length > 0 && (
+            <div className={`rounded-2xl p-5 border transition-all ${
+              darkMode ? "bg-slate-900/80 border-slate-800" : "bg-white/95 border-slate-200 shadow-xs"
+            }`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-amber-500" />
+                  <h3 className="font-bold text-base text-slate-900 dark:text-white">Unassigned Readings</h3>
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700/50">
+                  {unassignedReadings.length} pending
+                </span>
+              </div>
+              <div className="space-y-3">
+                {unassignedReadings.map(reading => (
+                  <div key={reading.id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="text-xs font-mono text-slate-500">{new Date(reading.timestamp).toLocaleTimeString()}</div>
+                      <div className="text-[10px] uppercase text-slate-400 bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded">{reading.source}</div>
+                    </div>
+                    <div className="flex gap-4 text-xs font-medium text-slate-700 dark:text-slate-300 mb-3">
+                      <span className="flex items-center gap-1"><Heart className="w-3 h-3 text-rose-500"/> {reading.heart_rate}</span>
+                      <span className="flex items-center gap-1"><Activity className="w-3 h-3 text-cyan-500"/> {reading.spo2}%</span>
+                      <span className="flex items-center gap-1"><Thermometer className="w-3 h-3 text-amber-500"/> {reading.temperature}°</span>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <select 
+                        className="flex-1 text-xs p-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900"
+                        id={`assign-select-${reading.id}`}
+                        defaultValue=""
+                      >
+                        <option value="" disabled>Select patient...</option>
+                        {allPatients.map(p => (
+                          <option key={p.auth0Sub} value={p.auth0Sub}>{p.name} ({p.id})</option>
+                        ))}
+                      </select>
+                      <button 
+                        onClick={() => {
+                          const selectEl = document.getElementById(`assign-select-${reading.id}`);
+                          if (selectEl.value) assignReading(reading.id, selectEl.value);
+                        }}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                      >
+                        Assign
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Right Column: Selected Patient Details + Triage Survey Card + Vitals Cards + Trend Chart + History Table + Notes */}

@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Radio, Heart, Activity, Thermometer, Play, Square,
-  AlertTriangle, CheckCircle2, Loader2, Wifi, WifiOff, ChevronDown
+  AlertTriangle, CheckCircle2, Loader2, Wifi, WifiOff
 } from "lucide-react";
 
 /**
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  *  ESP32 SIMULATOR — TEMPORARY TESTING TOOL
  *  ⚠️  Remove this entire page once real ESP32 hardware is connected.
- *  It exists only to generate fake telemetry readings to test the
- *  POST /api/readings pipeline and Doctor Dashboard integration.
+ *  It exists only to generate fake unassigned telemetry readings.
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  */
 
@@ -22,11 +21,10 @@ function generateReading() {
   let hr, spo2, temp;
 
   if (outOfRange) {
-    // Pick one vital to push out of normal range
     const pick = Math.floor(Math.random() * 3);
-    hr   = pick === 0 ? +(Math.random() * 40 + 110).toFixed(0) : +(Math.random() * 40 + 60).toFixed(0);  // 110-150 vs 60-100
-    spo2 = pick === 1 ? +(Math.random() * 8 + 85).toFixed(0)   : +(Math.random() * 5 + 95).toFixed(0);   // 85-93  vs 95-100
-    temp = pick === 2 ? +(Math.random() * 2 + 37.8).toFixed(1)  : +(Math.random() * 1.1 + 36.1).toFixed(1); // 37.8-39.8 vs 36.1-37.2
+    hr   = pick === 0 ? +(Math.random() * 40 + 110).toFixed(0) : +(Math.random() * 40 + 60).toFixed(0); 
+    spo2 = pick === 1 ? +(Math.random() * 8 + 85).toFixed(0)   : +(Math.random() * 5 + 95).toFixed(0);  
+    temp = pick === 2 ? +(Math.random() * 2 + 37.8).toFixed(1)  : +(Math.random() * 1.1 + 36.1).toFixed(1); 
   } else {
     hr   = +(Math.random() * 40 + 60).toFixed(0);
     spo2 = +(Math.random() * 5 + 95).toFixed(0);
@@ -37,13 +35,9 @@ function generateReading() {
 }
 
 export default function Esp32Simulator() {
-  const [patients, setPatients] = useState([]);
-  const [selectedSub, setSelectedSub] = useState("");
   const [scanning, setScanning] = useState(false);
   const [log, setLog] = useState([]);
-  const [loadingPatients, setLoadingPatients] = useState(true);
   const [error, setError] = useState("");
-  const [dropdownOpen, setDropdownOpen] = useState(false);
   const intervalRef = useRef(null);
   const logEndRef = useRef(null);
 
@@ -52,26 +46,8 @@ export default function Esp32Simulator() {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [log]);
 
-  // Fetch patient list on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/patients`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        setPatients(json.data || []);
-        if (json.data?.length) setSelectedSub(json.data[0].auth0_sub);
-      } catch (err) {
-        setError(`Failed to load patients: ${err.message}`);
-      } finally {
-        setLoadingPatients(false);
-      }
-    })();
-  }, []);
-
-  // Send one reading
+  // Send one reading (unassigned)
   const sendReading = useCallback(async () => {
-    if (!selectedSub) return;
     const reading = generateReading();
     const ts = new Date().toLocaleTimeString();
 
@@ -79,29 +55,28 @@ export default function Esp32Simulator() {
       const res = await fetch(`${BACKEND_URL}/api/readings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auth0_sub: selectedSub, ...reading, source: "esp32_simulator" }),
+        body: JSON.stringify({ ...reading, source: "simulator" }), // no patient_id or auth0_sub
       });
 
       const json = await res.json();
       if (!res.ok) {
-        setLog(prev => [...prev, { ts, status: "error", message: json.error || `HTTP ${res.status}`, ...reading }]);
+        setLog(prev => [...prev, { ts, status: "error", code: res.status, message: json.error || `HTTP ${res.status}`, ...reading }]);
         return;
       }
 
-      setLog(prev => [...prev, { ts, status: "ok", ...reading }]);
+      setLog(prev => [...prev, { ts, status: "ok", code: res.status, ...reading }]);
     } catch (err) {
-      setLog(prev => [...prev, { ts, status: "error", message: err.message, ...reading }]);
+      setLog(prev => [...prev, { ts, status: "error", code: 0, message: err.message, ...reading }]);
     }
-  }, [selectedSub]);
+  }, []);
 
   // Start scanning loop
   const handleStart = useCallback(() => {
-    if (!selectedSub) { setError("Select a patient first"); return; }
     setError("");
     setScanning(true);
     sendReading(); // fire immediately
     intervalRef.current = setInterval(sendReading, SCAN_INTERVAL_MS);
-  }, [selectedSub, sendReading]);
+  }, [sendReading]);
 
   // Stop scanning loop
   const handleStop = useCallback(() => {
@@ -112,8 +87,6 @@ export default function Esp32Simulator() {
 
   // Cleanup on unmount
   useEffect(() => () => clearInterval(intervalRef.current), []);
-
-  const selectedPatient = patients.find(p => p.auth0_sub === selectedSub);
 
   // Status indicator helpers
   const isAbnormal = (hr, spo2, temp) =>
@@ -135,7 +108,7 @@ export default function Esp32Simulator() {
               </span>
             </h1>
             <p className="text-[11px] text-zinc-500">
-              ⚠️ Temporary — remove when real hardware is connected
+              ⚠️ Sends unassigned readings. Source: 'simulator'
             </p>
           </div>
         </div>
@@ -152,60 +125,11 @@ export default function Esp32Simulator() {
       </header>
 
       <main className="flex-1 p-6 max-w-3xl mx-auto w-full space-y-5">
-        {/* Patient Selector */}
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5 space-y-3">
-          <label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
-            Target Patient
-          </label>
-
-          {loadingPatients ? (
-            <div className="flex items-center gap-2 text-zinc-500 text-sm py-3">
-              <Loader2 className="w-4 h-4 animate-spin" /> Loading patients…
-            </div>
-          ) : patients.length === 0 ? (
-            <div className="text-sm text-zinc-400 py-3">
-              No registered patients found. Register through the Patient flow first.
-            </div>
-          ) : (
-            <div className="relative">
-              <button
-                onClick={() => setDropdownOpen(v => !v)}
-                disabled={scanning}
-                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-zinc-700/60 bg-zinc-800/50 text-sm text-left disabled:opacity-50 hover:border-zinc-600 transition-colors cursor-pointer"
-              >
-                <span>
-                  {selectedPatient
-                    ? `${selectedPatient.full_name} (${selectedPatient.email})`
-                    : "Select a patient…"}
-                </span>
-                <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
-              </button>
-
-              {dropdownOpen && (
-                <div className="absolute z-20 mt-1 w-full rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl max-h-56 overflow-y-auto">
-                  {patients.map(p => (
-                    <button
-                      key={p.auth0_sub}
-                      onClick={() => { setSelectedSub(p.auth0_sub); setDropdownOpen(false); }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-zinc-800 transition-colors cursor-pointer ${
-                        p.auth0_sub === selectedSub ? "bg-zinc-800 text-white" : "text-zinc-300"
-                      }`}
-                    >
-                      <span className="font-medium">{p.full_name}</span>
-                      <span className="text-zinc-500 ml-2 text-xs">{p.email}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
         {/* Controls */}
         <div className="flex gap-3">
           <button
             onClick={handleStart}
-            disabled={scanning || !selectedSub}
+            disabled={scanning}
             className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm transition-all cursor-pointer
               bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-30 disabled:cursor-not-allowed"
           >
@@ -271,24 +195,31 @@ export default function Esp32Simulator() {
                       <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 shrink-0" />
                     )}
 
-                    <div className="flex-1 min-w-0">
-                      <span className="text-zinc-500">{entry.ts}</span>
-                      {entry.status === "ok" ? (
-                        <span className="ml-2">
-                          <span className="text-rose-400">
-                            <Heart className="w-3 h-3 inline -mt-0.5" /> {entry.heart_rate}
+                    <div className="flex-1 min-w-0 flex items-center justify-between">
+                      <div>
+                        <span className="text-zinc-500">{entry.ts}</span>
+                        {entry.status === "ok" ? (
+                          <span className="ml-2">
+                            <span className="text-rose-400">
+                              <Heart className="w-3 h-3 inline -mt-0.5" /> {entry.heart_rate}
+                            </span>
+                            <span className="text-zinc-600 mx-1.5">|</span>
+                            <span className="text-cyan-400">
+                              <Activity className="w-3 h-3 inline -mt-0.5" /> {entry.spo2}%
+                            </span>
+                            <span className="text-zinc-600 mx-1.5">|</span>
+                            <span className="text-amber-400">
+                              <Thermometer className="w-3 h-3 inline -mt-0.5" /> {entry.temperature}°C
+                            </span>
                           </span>
-                          <span className="text-zinc-600 mx-1.5">|</span>
-                          <span className="text-cyan-400">
-                            <Activity className="w-3 h-3 inline -mt-0.5" /> {entry.spo2}%
-                          </span>
-                          <span className="text-zinc-600 mx-1.5">|</span>
-                          <span className="text-amber-400">
-                            <Thermometer className="w-3 h-3 inline -mt-0.5" /> {entry.temperature}°C
-                          </span>
+                        ) : (
+                          <span className="ml-2 text-red-400">{entry.message}</span>
+                        )}
+                      </div>
+                      {entry.code && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${entry.status === "ok" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
+                          HTTP {entry.code}
                         </span>
-                      ) : (
-                        <span className="ml-2 text-red-400">{entry.message}</span>
                       )}
                     </div>
                   </div>
@@ -301,7 +232,7 @@ export default function Esp32Simulator() {
 
         {/* Scan config info */}
         <p className="text-center text-[10px] text-zinc-600">
-          Sends one reading every {SCAN_INTERVAL_MS / 1000}s · ~10% chance of anomalous values · Source: esp32_simulator
+          Sends one reading every {SCAN_INTERVAL_MS / 1000}s · ~10% chance of anomalous values · Source: simulator
         </p>
       </main>
     </div>
