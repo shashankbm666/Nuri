@@ -107,9 +107,10 @@ app.put("/api/patients/:sub", async (req, res) => {
 
 // ── POST /api/readings ────────────────────────────────────────────────────────
 // Accepts a telemetry reading. If patient_id or auth0_sub is provided, links to patient.
-// Otherwise, records as unassigned.
+// Otherwise, records as unassigned (patient_id = NULL).
+// Optional: timestamp (ISO string) — used by trend batch to space readings historically.
 app.post("/api/readings", async (req, res) => {
-  const { auth0_sub, patient_id: req_patient_id, heart_rate, spo2, temperature, source } = req.body;
+  const { auth0_sub, patient_id: req_patient_id, heart_rate, spo2, temperature, source, timestamp } = req.body;
 
   if (heart_rate == null || spo2 == null || temperature == null)
     return res.status(400).json({ error: "heart_rate, spo2, and temperature are required" });
@@ -130,7 +131,6 @@ app.post("/api/readings", async (req, res) => {
     if (req_patient_id) {
       final_patient_id = req_patient_id;
     } else if (auth0_sub) {
-      // Resolve patient postgres ID from auth0_sub
       const patResult = await pool.query("SELECT id FROM patients WHERE auth0_sub = $1", [auth0_sub]);
       if (patResult.rows.length > 0) {
         final_patient_id = patResult.rows[0].id;
@@ -139,11 +139,19 @@ app.post("/api/readings", async (req, res) => {
       }
     }
 
-    const result = await pool.query(
-      `INSERT INTO readings (patient_id, heart_rate, spo2, temperature, source)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [final_patient_id, hr, sp, tp, source || "esp32"]
-    );
+    // If caller provides a timestamp (trend batch), use it; else default to NOW()
+    const result = timestamp
+      ? await pool.query(
+          `INSERT INTO readings (patient_id, heart_rate, spo2, temperature, source, timestamp)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          [final_patient_id, hr, sp, tp, source || "esp32", timestamp]
+        )
+      : await pool.query(
+          `INSERT INTO readings (patient_id, heart_rate, spo2, temperature, source)
+           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+          [final_patient_id, hr, sp, tp, source || "esp32"]
+        );
+
     res.status(201).json({ data: result.rows[0] });
   } catch (err) {
     console.error("[POST /api/readings]", err.message);
