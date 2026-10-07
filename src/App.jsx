@@ -3,7 +3,7 @@ import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import PatientDashboard from "./pages/PatientDashboard";
 import DoctorDashboard from "./pages/DoctorDashboard";
-import Esp32Simulator from "./pages/Esp32Simulator";
+
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./auth/AuthProvider";
 import { DoctorAuthProvider, useDoctorAuth } from "./auth/DoctorAuthContext";
@@ -54,8 +54,6 @@ export default function App() {
                   </DoctorProtectedRoute>
                 }
               />
-              {/* ⚠️ ESP32 Simulator — temporary dev tool, remove when real hardware exists */}
-              <Route path="/esp32-simulator" element={<Esp32Simulator />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </HashRouter>
