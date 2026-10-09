@@ -10,7 +10,7 @@ import { getLatestVitalsForPatient } from "../services/vitalsService";
 import { getPatientTriageSurvey } from "../services/triageService";
 import { useAuth } from "../auth/AuthProvider";
 import { useOpd } from "../context/OpdContext";
-import { ClipboardList, CheckCircle2, ChevronRight, Loader2 } from "lucide-react";
+import { ClipboardList, CheckCircle2, ChevronRight, Loader2, MapPin, AlertCircle } from "lucide-react";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
@@ -131,6 +131,9 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
   }, [user?.sub]);
 
   const [triageRecord, setTriageRecord] = useState(null);
+  const [seatInfo, setSeatInfo] = useState(null);       // { seat, job_id }
+  const [seatLoading, setSeatLoading] = useState(false);
+  const [seatError, setSeatError] = useState(null);
 
   // Load triage once patient profile is set
   useEffect(() => {
@@ -182,13 +185,40 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
     setActiveTab("survey");
   };
 
-  const handleSurveyComplete = (record) => {
+  const handleSurveyComplete = async (record) => {
     setTriageRecord(record);
     registerOrUpdatePatientInQueue({
       profile: patient,
       triageRecord: record,
       vitals: getLatestVitalsForPatient(patient.patientId),
     });
+
+    // Auto-assign a seat based on computed triage priority
+    setSeatLoading(true);
+    setSeatError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/seats/assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          auth0_sub: patient.auth0Sub,
+          priority: record.computedPriority,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setSeatInfo({ seat: json.seat, job_id: json.job_id, already_assigned: json.already_assigned });
+      } else if (res.status === 409) {
+        setSeatError("All seats are currently occupied. Please wait and inform the front desk.");
+      } else {
+        setSeatError("Could not assign a seat right now. Please inform the front desk.");
+      }
+    } catch {
+      setSeatError("Could not reach server. Please inform the front desk.");
+    } finally {
+      setSeatLoading(false);
+    }
+
     setActiveTab("dashboard");
   };
 
@@ -285,6 +315,54 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
                   </button>
                 </div>
               </div>
+
+              {/* ── Seat Assignment Banner ── */}
+              {seatLoading && (
+                <div className={`rounded-2xl p-4 border flex items-center gap-3 ${
+                  darkMode ? "bg-zinc-900/80 border-zinc-800" : "bg-white border-slate-200/90 shadow-2xs"
+                }`}>
+                  <Loader2 className="w-5 h-5 animate-spin text-indigo-500 shrink-0" />
+                  <p className="text-sm text-slate-600 dark:text-zinc-400">Assigning your seat…</p>
+                </div>
+              )}
+
+              {!seatLoading && seatInfo && (
+                <div className={`rounded-2xl p-5 border ${
+                  darkMode ? "bg-zinc-900/80 border-zinc-700" : "bg-white border-slate-200/90 shadow-2xs"
+                }`}>
+                  <div className="flex items-center gap-4">
+                    {/* Big seat label */}
+                    <div className="w-16 h-16 rounded-2xl bg-indigo-600 flex flex-col items-center justify-center shrink-0 shadow-md">
+                      <MapPin className="w-5 h-5 text-white mb-0.5" />
+                      <span className="text-xl font-black text-white leading-none">{seatInfo.seat}</span>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                        Your Seat is{" "}
+                        <span className="text-indigo-600 dark:text-indigo-400">{seatInfo.seat}</span>
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                        {seatInfo.already_assigned
+                          ? "Previously assigned seat — NURI is on its way."
+                          : "NURI robot will navigate to your seat shortly. Please wait here."}
+                      </p>
+                      <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/40">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                        <span className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-400">Robot dispatched</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!seatLoading && seatError && (
+                <div className={`rounded-2xl p-4 border flex items-start gap-3 ${
+                  darkMode ? "bg-zinc-900/80 border-amber-800/40" : "bg-amber-50 border-amber-200"
+                }`}>
+                  <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-sm text-amber-700 dark:text-amber-400">{seatError}</p>
+                </div>
+              )}
 
               <VitalsGrid latestReading={latestReading} />
             </>

@@ -318,20 +318,298 @@ app.get("/api/patients/:sub/readings", async (req, res) => {
   }
 });
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// SEAT MANAGEMENT
+// ════════════════════════════════════════════════════════════════════════════
+
+// Seat preference order by triage priority (inner seats = closer for robot)
+const SEAT_PRIORITY = {
+  red:    ["R1", "L1", "R2", "L2"],
+  orange: ["R1", "L1", "R2", "L2"],
+  yellow: ["R2", "L2", "R1", "L1"],
+  green:  ["L1", "L2", "R1", "R2"],
+  blue:   ["L2", "L1", "R2", "R1"],
+};
+
+// ── GET /api/seats ────────────────────────────────────────────────────────────
+// Returns all 4 seats with current status and occupant name (if any)
+app.get("/api/seats", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT s.id, s.name, s.status, s.patient_id, s.assigned_at,
+             p.full_name AS patient_name
+      FROM seats s
+      LEFT JOIN patients p ON s.patient_id = p.id
+      ORDER BY s.name
+    `);
+    res.json({ data: result.rows });
+  } catch (err) {
+    console.error("[GET /api/seats]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/seats/assign ───────────────────────────────────────────────────
+// Called after patient completes survey. Assigns the best available seat
+// based on triage priority, creates a robot job, and returns the seat + job.
+// Body: { auth0_sub, priority: "red"|"orange"|"yellow"|"green"|"blue" }
+app.post("/api/seats/assign", async (req, res) => {
+  const { auth0_sub, priority } = req.body;
+  if (!auth0_sub) return res.status(400).json({ error: "auth0_sub is required" });
+  if (!priority)  return res.status(400).json({ error: "priority is required" });
+
+  const preferredOrder = SEAT_PRIORITY[priority] || SEAT_PRIORITY.blue;
+
+  try {
+    // Find patient
+    const patResult = await pool.query(
+      "SELECT id, full_name FROM patients WHERE auth0_sub = $1", [auth0_sub]
+    );
+    if (patResult.rows.length === 0)
+      return res.status(404).json({ error: "Patient not found" });
+
+    const { id: patient_id, full_name: patient_name } = patResult.rows[0];
+
+    // Check if patient already has a seat assigned
+    const existing = await pool.query(
+      "SELECT * FROM seats WHERE patient_id = $1 AND status = 'occupied'", [patient_id]
+    );
+    if (existing.rows.length > 0) {
+      // Already assigned — return existing seat
+      const seat = existing.rows[0];
+      const job = await pool.query(
+        "SELECT * FROM robot_jobs WHERE patient_id = $1 ORDER BY created_at DESC LIMIT 1",
+        [patient_id]
+      );
+      return res.json({
+        seat: seat.name,
+        seat_id: seat.id,
+        job_id: job.rows[0]?.id || null,
+        already_assigned: true,
+      });
+    }
+
+    // Find first available seat in priority order
+    await pool.query("BEGIN");
+    let assignedSeat = null;
+    for (const seatName of preferredOrder) {
+      const lockRes = await pool.query(
+        `SELECT * FROM seats WHERE name = $1 AND status = 'available' FOR UPDATE SKIP LOCKED`,
+        [seatName]
+      );
+      if (lockRes.rows.length > 0) {
+        assignedSeat = lockRes.rows[0];
+        break;
+      }
+    }
+
+    if (!assignedSeat) {
+      await pool.query("ROLLBACK");
+      return res.status(409).json({ error: "no_seats_available", message: "All seats are currently occupied" });
+    }
+
+    // Mark seat occupied
+    await pool.query(
+      `UPDATE seats SET status = 'occupied', patient_id = $1, assigned_at = NOW()
+       WHERE id = $2`,
+      [patient_id, assignedSeat.id]
+    );
+
+    // Create robot job
+    const jobRes = await pool.query(
+      `INSERT INTO robot_jobs (patient_id, patient_name, destination, status)
+       VALUES ($1, $2, $3, 'pending') RETURNING id`,
+      [patient_id, patient_name, assignedSeat.name]
+    );
+
+    await pool.query("COMMIT");
+    res.status(201).json({
+      seat: assignedSeat.name,
+      seat_id: assignedSeat.id,
+      job_id: jobRes.rows[0].id,
+      patient_name,
+    });
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    console.error("[POST /api/seats/assign]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── PATCH /api/seats/:name/release ───────────────────────────────────────────
+// Releases a seat when patient is discharged. Called from Doctor Dashboard.
+app.patch("/api/seats/:name/release", async (req, res) => {
+  const { name } = req.params;
+  try {
+    const result = await pool.query(
+      `UPDATE seats SET status = 'available', patient_id = NULL, assigned_at = NULL
+       WHERE name = $1 RETURNING *`,
+      [name.toUpperCase()]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: "Seat not found" });
+    res.json({ released: result.rows[0].name, status: "available" });
+  } catch (err) {
+    console.error("[PATCH /api/seats/:name/release]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/seats/current/:patient_id ───────────────────────────────────────
+// ESP32 uses this to confirm which seat a patient is assigned to
+app.get("/api/seats/current/:patient_id", async (req, res) => {
+  const { patient_id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT s.name, s.status, s.assigned_at, rj.id AS job_id, rj.status AS job_status
+       FROM seats s
+       LEFT JOIN robot_jobs rj ON rj.patient_id = s.patient_id AND rj.status != 'complete'
+       WHERE s.patient_id = $1`,
+      [patient_id]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: "No seat assigned for this patient" });
+    res.json({ data: result.rows[0] });
+  } catch (err) {
+    console.error("[GET /api/seats/current/:patient_id]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// ROBOT JOB QUEUE  (ESP32 polls these)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── GET /api/robot/pending ────────────────────────────────────────────────────
+// ESP32 polls this every few seconds. Returns the oldest pending job.
+// Response: { id, patient_name, destination, created_at }
+app.get("/api/robot/pending", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, patient_name, destination, created_at
+       FROM robot_jobs
+       WHERE status = 'pending'
+       ORDER BY created_at ASC
+       LIMIT 1`
+    );
+    if (result.rows.length === 0)
+      return res.json({ job: null });
+    res.json({ job: result.rows[0] });
+  } catch (err) {
+    console.error("[GET /api/robot/pending]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── PATCH /api/robot/jobs/:id/start ──────────────────────────────────────────
+// ESP32 calls this when it starts moving toward the destination.
+// Changes job status: pending → in_progress
+app.patch("/api/robot/jobs/:id/start", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `UPDATE robot_jobs SET status = 'in_progress', started_at = NOW()
+       WHERE id = $1 AND status = 'pending' RETURNING *`,
+      [id]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: "Job not found or already started" });
+    res.json({ data: result.rows[0] });
+  } catch (err) {
+    console.error("[PATCH /api/robot/jobs/:id/start]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/robot/jobs/:id/complete ─────────────────────────────────────────
+// ESP32 calls this after collecting vitals.
+// Body: { heart_rate, spo2, temperature }
+// Inserts a reading for the patient, marks job complete.
+// ESP32 sends: { "user": "Rahul", "destination": "L1", "heartRate": 75, "spo2": 98,
+//               "temperature": 36.5, "status": "complete" }
+app.post("/api/robot/jobs/:id/complete", async (req, res) => {
+  const { id } = req.params;
+  // Accept both camelCase (ESP32 native) and snake_case
+  const heart_rate = req.body.heart_rate ?? req.body.heartRate;
+  const spo2       = req.body.spo2;
+  const temperature = req.body.temperature;
+
+  if (heart_rate == null || spo2 == null || temperature == null)
+    return res.status(400).json({ error: "heart_rate, spo2, and temperature are required" });
+
+  const hr = parseFloat(heart_rate);
+  const sp = parseFloat(spo2);
+  const tp = parseFloat(temperature);
+
+  const errors = [];
+  if (isNaN(hr) || hr < 30 || hr > 220) errors.push("heart_rate out of range (30-220)");
+  if (isNaN(sp) || sp < 50 || sp > 100)  errors.push("spo2 out of range (50-100)");
+  if (isNaN(tp) || tp < 30 || tp > 42)   errors.push("temperature out of range (30-42)");
+  if (errors.length) return res.status(422).json({ error: "Range violation", details: errors });
+
+  try {
+    // Get job to find patient_id
+    const jobRes = await pool.query(
+      "SELECT * FROM robot_jobs WHERE id = $1", [id]
+    );
+    if (jobRes.rows.length === 0)
+      return res.status(404).json({ error: "Job not found" });
+    const job = jobRes.rows[0];
+
+    await pool.query("BEGIN");
+
+    // Insert reading linked to patient
+    const readingRes = await pool.query(
+      `INSERT INTO readings (patient_id, heart_rate, spo2, temperature, source)
+       VALUES ($1, $2, $3, $4, 'nuri_robot') RETURNING *`,
+      [job.patient_id, hr, sp, tp]
+    );
+
+    // Mark job complete
+    await pool.query(
+      `UPDATE robot_jobs SET status = 'complete', completed_at = NOW() WHERE id = $1`,
+      [id]
+    );
+
+    await pool.query("COMMIT");
+    res.status(201).json({
+      message: "Vitals recorded and job complete",
+      reading: readingRes.rows[0],
+      job_id: id,
+    });
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    console.error("[POST /api/robot/jobs/:id/complete]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ── Root ──────────────────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
   res.json({
     service: "nuri-backend",
-    version: "1.1.0",
+    version: "1.2.0",
     status: "online",
     endpoints: [
       "GET  /api/health",
-      "GET  /api/patients                    (list all)",
-      "GET  /api/patients/:sub               (by auth0_sub)",
+      "GET  /api/patients                       (list all)",
+      "GET  /api/patients/:sub                  (by auth0_sub)",
       "POST /api/patients",
       "PUT  /api/patients/:sub",
-      "POST /api/readings                    (ESP32 telemetry ingest)",
-      "GET  /api/patients/:sub/readings      (reading history)"
+      "DELETE /api/patients/:sub",
+      "POST /api/readings                       (single reading)",
+      "POST /api/readings/batch                 (batch readings)",
+      "GET  /api/readings/unassigned",
+      "PATCH /api/readings/:id/assign",
+      "GET  /api/patients/:sub/readings",
+      "GET  /api/seats                          (seat map)",
+      "POST /api/seats/assign                   (assign seat by triage priority)",
+      "PATCH /api/seats/:name/release           (release seat on discharge)",
+      "GET  /api/seats/current/:patient_id      (ESP32: which seat for patient?)",
+      "GET  /api/robot/pending                  (ESP32: next job to execute)",
+      "PATCH /api/robot/jobs/:id/start          (ESP32: mark job in-progress)",
+      "POST /api/robot/jobs/:id/complete        (ESP32: submit vitals + complete)",
     ]
   });
 });

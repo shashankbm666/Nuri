@@ -15,7 +15,8 @@ import {
   Inbox,
   UserCheck,
   Loader2,
-  Trash2
+  Trash2,
+  MapPin
 } from "lucide-react";
 import ThemeToggle from "../components/ThemeToggle";
 import VitalsTrendChart from "../components/VitalsTrendChart";
@@ -49,6 +50,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
   // ── Backend readings state ─────────────────────────────────────────────────
   const [backendReadings, setBackendReadings] = useState([]);
   const [unassignedReadings, setUnassignedReadings] = useState([]);
+  const [seats, setSeats] = useState([]);
   const pollRef = useRef(null);
 
   // Clear doctor session and return to landing page
@@ -107,11 +109,33 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
     }
   }, []);
 
+  const fetchSeats = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/seats`);
+      if (res.ok) {
+        const json = await res.json();
+        setSeats(json.data || []);
+      }
+    } catch {
+      // Silent fail
+    }
+  }, []);
+
+  const releaseSeat = async (seatName) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/seats/${seatName}/release`, { method: "PATCH" });
+      if (res.ok) fetchSeats();
+    } catch (err) {
+      console.error("Failed to release seat", err);
+    }
+  };
+
   // When selectedPatient changes, fetch readings + start polling
   useEffect(() => {
     clearInterval(pollRef.current);
     setBackendReadings([]);
     fetchUnassignedReadings();
+    fetchSeats();
 
     const sub = selectedPatient?.auth0Sub;
     
@@ -122,10 +146,11 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
     pollRef.current = setInterval(() => {
       if (sub) fetchReadings(sub);
       fetchUnassignedReadings();
+      fetchSeats();
     }, READING_POLL_INTERVAL);
 
     return () => clearInterval(pollRef.current);
-  }, [selectedPatient?.auth0Sub, fetchReadings, fetchUnassignedReadings]);
+  }, [selectedPatient?.auth0Sub, fetchReadings, fetchUnassignedReadings, fetchSeats]);
 
   // ── Assign Reading ─────────────────────────────────────────────────────────
   // auth0Sub is used in the select option values; we resolve the postgres integer id here
@@ -520,6 +545,60 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
               </div>
             </div>
           )}
+
+          {/* ── Seat Map Panel ── */}
+          <div className={`rounded-2xl p-5 border transition-all ${
+            darkMode ? "bg-slate-900/80 border-slate-800" : "bg-white/95 border-slate-200 shadow-xs"
+          }`}>
+            <div className="flex items-center gap-2 mb-4">
+              <MapPin className="w-5 h-5 text-indigo-500" />
+              <h3 className="font-bold text-base text-slate-900 dark:text-white">Seat Map</h3>
+              <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
+                {seats.filter(s => s.status === "occupied").length}/{seats.length} occupied
+              </span>
+            </div>
+
+            {/* Physical layout: Home at top, R2 R1 | L1 L2 below */}
+            <div className="flex flex-col items-center gap-2 mb-4">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800">
+                🏠 Home (Robot Base)
+              </div>
+              <div className="w-px h-4 bg-slate-300 dark:bg-slate-700" />
+              <div className="grid grid-cols-4 gap-2 w-full">
+                {["R2","R1","L1","L2"].map(name => {
+                  const seat = seats.find(s => s.name === name);
+                  const occupied = seat?.status === "occupied";
+                  return (
+                    <div
+                      key={name}
+                      className={`relative rounded-xl p-2.5 border text-center transition-all ${
+                        occupied
+                          ? "bg-indigo-600 border-indigo-500 text-white shadow-md"
+                          : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400"
+                      }`}
+                    >
+                      <div className={`text-lg font-black leading-none ${occupied ? "text-white" : ""}`}>{name}</div>
+                      <div className={`text-[9px] font-semibold mt-1 truncate ${occupied ? "text-indigo-200" : "text-slate-400"}`}>
+                        {occupied ? (seat.patient_name?.split(" ")[0] || "Occupied") : "Free"}
+                      </div>
+                      {occupied && (
+                        <button
+                          onClick={() => releaseSeat(name)}
+                          title="Release seat (patient discharged)"
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 flex items-center justify-center hover:bg-red-50 transition-colors cursor-pointer"
+                        >
+                          <X className="w-3 h-3 text-slate-500 hover:text-red-500" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-400 dark:text-slate-600 text-center">
+              ✕ to release a seat when patient is done
+            </p>
+          </div>
 
         </div>
 
