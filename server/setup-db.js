@@ -41,6 +41,7 @@ async function migrate() {
       patient_name VARCHAR(255),
       destination  VARCHAR(5)  NOT NULL,
       status       VARCHAR(20) NOT NULL DEFAULT 'pending',
+      priority     VARCHAR(10) NOT NULL DEFAULT 'blue',
       created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       started_at   TIMESTAMPTZ,
       completed_at TIMESTAMPTZ

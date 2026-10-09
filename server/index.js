@@ -416,11 +416,11 @@ app.post("/api/seats/assign", async (req, res) => {
       [patient_id, assignedSeat.id]
     );
 
-    // Create robot job
+    // Create robot job — store priority so queue is served by severity
     const jobRes = await pool.query(
-      `INSERT INTO robot_jobs (patient_id, patient_name, destination, status)
-       VALUES ($1, $2, $3, 'pending') RETURNING id`,
-      [patient_id, patient_name, assignedSeat.name]
+      `INSERT INTO robot_jobs (patient_id, patient_name, destination, status, priority)
+       VALUES ($1, $2, $3, 'pending', $4) RETURNING id`,
+      [patient_id, patient_name, assignedSeat.name, priority]
     );
 
     await pool.query("COMMIT");
@@ -482,15 +482,25 @@ app.get("/api/seats/current/:patient_id", async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── GET /api/robot/pending ────────────────────────────────────────────────────
-// ESP32 polls this every few seconds. Returns the oldest pending job.
-// Response: { id, patient_name, destination, created_at }
+// ESP32 polls this every few seconds.
+// Returns the HIGHEST PRIORITY pending job (most critical patient first).
+// Priority order: red > orange > yellow > green > blue
 app.get("/api/robot/pending", async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, patient_name, destination, created_at
+      `SELECT id, patient_name, destination, priority, created_at
        FROM robot_jobs
        WHERE status = 'pending'
-       ORDER BY created_at ASC
+       ORDER BY
+         CASE priority
+           WHEN 'red'    THEN 5
+           WHEN 'orange' THEN 4
+           WHEN 'yellow' THEN 3
+           WHEN 'green'  THEN 2
+           WHEN 'blue'   THEN 1
+           ELSE 0
+         END DESC,
+         created_at ASC
        LIMIT 1`
     );
     if (result.rows.length === 0)
@@ -572,11 +582,20 @@ app.post("/api/robot/jobs/:id/complete", async (req, res) => {
       [id]
     );
 
+    // Auto-release the seat — it's free for the next patient
+    await pool.query(
+      `UPDATE seats
+       SET status = 'available', patient_id = NULL, assigned_at = NULL
+       WHERE patient_id = $1 AND name = $2`,
+      [job.patient_id, job.destination]
+    );
+
     await pool.query("COMMIT");
     res.status(201).json({
-      message: "Vitals recorded and job complete",
+      message: "Vitals recorded, seat released, job complete",
       reading: readingRes.rows[0],
       job_id: id,
+      seat_released: job.destination,
     });
   } catch (err) {
     await pool.query("ROLLBACK");

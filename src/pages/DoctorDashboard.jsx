@@ -579,15 +579,15 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                     >
                       <div className={`text-lg font-black leading-none ${occupied ? "text-white" : ""}`}>{name}</div>
                       <div className={`text-[9px] font-semibold mt-1 truncate ${occupied ? "text-indigo-200" : "text-slate-400"}`}>
-                        {occupied ? (seat.patient_name?.split(" ")[0] || "Occupied") : "Free"}
+                        {occupied ? (seat?.patient_name?.split(" ")[0] || "Occupied") : "Free"}
                       </div>
                       {occupied && (
                         <button
-                          onClick={() => releaseSeat(name)}
-                          title="Release seat (patient discharged)"
-                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 flex items-center justify-center hover:bg-red-50 transition-colors cursor-pointer"
+                          onClick={() => window.confirm(`Force-release seat ${name}? (Use only if robot failed or patient left early)`) && releaseSeat(name)}
+                          title="Force-release seat (emergency only)"
+                          className="mt-1.5 text-[8px] text-indigo-300 hover:text-white underline cursor-pointer bg-transparent border-0"
                         >
-                          <X className="w-3 h-3 text-slate-500 hover:text-red-500" />
+                          force release
                         </button>
                       )}
                     </div>
@@ -596,7 +596,7 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
               </div>
             </div>
             <p className="text-[10px] text-slate-400 dark:text-slate-600 text-center">
-              ✕ to release a seat when patient is done
+              Seats auto-release after robot completes vitals scan
             </p>
           </div>
 
