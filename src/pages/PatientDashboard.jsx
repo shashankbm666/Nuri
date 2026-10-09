@@ -44,12 +44,12 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
         const res = await fetch(`${BACKEND_URL}/api/patients/${encodeURIComponent(user.sub)}`);
 
         if (res.ok) {
-          // Returning user — load their persisted profile
+          // ── Returning user — load their persisted DB profile ──────────────
           const { data } = await res.json();
           const profile = {
             patientId: generatePatientId(user.sub),
             auth0Sub: user.sub,
-            dbId: data.id,                        // postgres integer id — needed for seat lookup
+            dbId: data.id,
             name: data.full_name,
             email: data.email,
             avatarUrl: user.picture || null,
@@ -63,78 +63,75 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
           setPatient(profile);
           setShowOnboarding(false);
 
-          // Sync into doctor queue (triage may already exist in service)
-          const triage = getPatientTriageSurvey(profile.patientId);
-          if (triage) {
-            registerOrUpdatePatientInQueue({
-              profile,
-              triageRecord: triage,
-              vitals: getLatestVitalsForPatient(profile.patientId),
-            });
-          }
+          // Sync into doctor queue
+          registerOrUpdatePatientInQueue({ profile, triageRecord: null, vitals: null });
 
-          // Check if this patient already has a seat assigned in the DB
-          // (so seat number persists across page refreshes)
+          // ── Check for existing seat (persists across refresh) ──────────────
           try {
             const seatRes = await fetch(`${BACKEND_URL}/api/seats/current/${data.id}`);
             if (seatRes.ok) {
               const seatJson = await seatRes.json();
               setSeatInfo({ seat: seatJson.data.name, already_assigned: true });
+              // Has a seat → go straight to dashboard to show it
+              setActiveTab("dashboard");
+            } else {
+              // No seat yet → go to survey so they get one
+              setActiveTab("survey");
             }
           } catch {
-            // Seat lookup failure is silent — not a critical error
+            // Seat lookup failed silently — still go to survey
+            setActiveTab("survey");
           }
+
         } else if (res.status === 404) {
-          // New user — placeholder profile; onboarding modal will complete it
+          // ── Brand new user — show onboarding to collect height/weight ──────
           setPatient({
             patientId: generatePatientId(user.sub),
             auth0Sub: user.sub,
-            name: "",
+            name: user.name || "",
             email: user.email || "",
             avatarUrl: user.picture || null,
-            gender: "—",
-            age: "—",
-            weight: "—",
-            height: "—",
+            gender: "—", age: "—", weight: "—", height: "—",
             status: "Pre-Consultation",
             registeredAt: null,
           });
           setShowOnboarding(true);
+
         } else {
-          console.error("[PatientDashboard] Backend error:", res.status);
-          // Graceful fallback: show onboarding so user can still proceed
+          // ── Backend error (500 etc.) — DO NOT show onboarding ─────────────
+          // Profile likely exists in DB but backend is temporarily broken.
+          // Load from Auth0 data so user can still use the app.
+          console.warn("[PatientDashboard] Backend error:", res.status, "— loading from Auth0");
           setPatient({
             patientId: generatePatientId(user.sub),
             auth0Sub: user.sub,
-            name: "",
+            dbId: null,
+            name: user.name || user.nickname || "Patient",
             email: user.email || "",
             avatarUrl: user.picture || null,
-            gender: "—",
-            age: "—",
-            weight: "—",
-            height: "—",
+            gender: "—", age: "—", weight: "—", height: "—",
             status: "Pre-Consultation",
             registeredAt: null,
           });
-          setShowOnboarding(true);
+          setShowOnboarding(false); // ← KEY FIX: no re-registration on 500
+          setActiveTab("survey");
         }
       } catch (err) {
-        console.error("[PatientDashboard] Could not reach backend:", err.message);
-        // Network error — graceful fallback
+        // ── Network error (backend unreachable) — same as above, no onboarding
+        console.warn("[PatientDashboard] Cannot reach backend:", err.message);
         setPatient({
           patientId: generatePatientId(user.sub),
           auth0Sub: user.sub,
-          name: "",
+          dbId: null,
+          name: user.name || user.nickname || "Patient",
           email: user.email || "",
           avatarUrl: user.picture || null,
-          gender: "—",
-          age: "—",
-          weight: "—",
-          height: "—",
+          gender: "—", age: "—", weight: "—", height: "—",
           status: "Pre-Consultation",
           registeredAt: null,
         });
-        setShowOnboarding(true);
+        setShowOnboarding(false); // ← KEY FIX: no re-registration on network error
+        setActiveTab("survey");
       } finally {
         setProfileLoading(false);
       }
@@ -144,15 +141,17 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
   }, [user?.sub]);
 
   const [triageRecord, setTriageRecord] = useState(null);
-  const [seatInfo, setSeatInfo] = useState(null);       // { seat, job_id }
+  const [seatInfo, setSeatInfo] = useState(null);
   const [seatLoading, setSeatLoading] = useState(false);
   const [seatError, setSeatError] = useState(null);
 
-  // Load triage once patient profile is set
+  // Survey is always cleared on login — fresh survey every visit.
+  // Profile (height/weight) is asked only once (onboarding).
   useEffect(() => {
     if (patient?.patientId) {
-      const survey = getPatientTriageSurvey(patient.patientId);
-      setTriageRecord(survey);
+      // Clear any previous triage so user must fill it again this session
+      localStorage.removeItem(`nuri_patient_triage_${patient.patientId}`);
+      setTriageRecord(null);
     }
   }, [patient?.patientId]);
 
