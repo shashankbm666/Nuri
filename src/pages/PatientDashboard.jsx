@@ -49,6 +49,7 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
           const profile = {
             patientId: generatePatientId(user.sub),
             auth0Sub: user.sub,
+            dbId: data.id,                        // postgres integer id — needed for seat lookup
             name: data.full_name,
             email: data.email,
             avatarUrl: user.picture || null,
@@ -70,6 +71,18 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
               triageRecord: triage,
               vitals: getLatestVitalsForPatient(profile.patientId),
             });
+          }
+
+          // Check if this patient already has a seat assigned in the DB
+          // (so seat number persists across page refreshes)
+          try {
+            const seatRes = await fetch(`${BACKEND_URL}/api/seats/current/${data.id}`);
+            if (seatRes.ok) {
+              const seatJson = await seatRes.json();
+              setSeatInfo({ seat: seatJson.data.name, already_assigned: true });
+            }
+          } catch {
+            // Seat lookup failure is silent — not a critical error
           }
         } else if (res.status === 404) {
           // New user — placeholder profile; onboarding modal will complete it
@@ -277,6 +290,85 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
             <>
               <PatientProfile patient={patient} />
 
+              {/* ══════════ SEAT ASSIGNMENT CARD (most prominent element) ══════════ */}
+              {seatLoading ? (
+                <div className={`rounded-2xl p-5 border flex items-center gap-3 ${
+                  darkMode ? "bg-zinc-900/80 border-zinc-800" : "bg-white border-slate-200/90 shadow-2xs"
+                }`}>
+                  <Loader2 className="w-5 h-5 animate-spin text-indigo-500 shrink-0" />
+                  <p className="text-sm text-slate-600 dark:text-zinc-400">Assigning your seat…</p>
+                </div>
+              ) : seatInfo ? (
+                /* ── Seat Assigned ── */
+                <div className={`rounded-2xl overflow-hidden border ${
+                  darkMode ? "border-indigo-800/50" : "border-indigo-200"
+                }`}>
+                  {/* Top accent bar */}
+                  <div className="h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-400" />
+
+                  <div className={`p-5 sm:p-6 flex flex-col sm:flex-row items-center sm:items-start gap-5 ${
+                    darkMode ? "bg-indigo-950/30" : "bg-indigo-50/60"
+                  }`}>
+                    {/* Giant seat number badge */}
+                    <div className="flex-shrink-0 flex flex-col items-center gap-1">
+                      <div className="w-24 h-24 rounded-3xl bg-indigo-600 shadow-lg shadow-indigo-500/30 flex flex-col items-center justify-center">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-300 mb-0.5">Seat</span>
+                        <span className="text-5xl font-black text-white leading-none tracking-tight">{seatInfo.seat}</span>
+                      </div>
+                      {/* Live pulsing indicator */}
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                        <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">Assigned</span>
+                      </div>
+                    </div>
+
+                    {/* Info block */}
+                    <div className="flex-1 text-center sm:text-left">
+                      <h3 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white mb-1">
+                        Your assigned seat is{" "}
+                        <span className="text-indigo-600 dark:text-indigo-400">{seatInfo.seat}</span>
+                      </h3>
+                      <p className="text-sm text-slate-500 dark:text-zinc-400">
+                        Please proceed to seat <strong className="text-slate-700 dark:text-zinc-200">{seatInfo.seat}</strong> in the waiting area. NURI will navigate to your seat, collect your vitals, and return automatically.
+                      </p>
+
+                      {/* Status pills */}
+                      <div className="mt-3 flex flex-wrap gap-2 justify-center sm:justify-start">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-700/50 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                          <MapPin className="w-3 h-3" /> Seat {seatInfo.seat}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-700/50 text-xs font-semibold text-violet-700 dark:text-violet-300">
+                          <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+                          🤖 Robot en route
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                          ID: {patient?.patientId}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : seatError ? (
+                /* ── Seat Error ── */
+                <div className={`rounded-2xl p-4 border flex items-start gap-3 ${
+                  darkMode ? "bg-zinc-900/80 border-amber-800/40" : "bg-amber-50 border-amber-200"
+                }`}>
+                  <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Seat Assignment Unavailable</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">{seatError}</p>
+                  </div>
+                </div>
+              ) : triageRecord ? (
+                /* ── Survey done but no seat yet (shouldn't normally happen) ── */
+                <div className={`rounded-2xl p-4 border flex items-center gap-3 ${
+                  darkMode ? "bg-zinc-900/80 border-zinc-700" : "bg-slate-50 border-slate-200"
+                }`}>
+                  <Loader2 className="w-4 h-4 text-slate-400 animate-spin shrink-0" />
+                  <p className="text-xs text-slate-500 dark:text-zinc-400">Seat assignment pending… Please wait or inform front desk.</p>
+                </div>
+              ) : null}
+
               {/* Symptom Survey Status Card */}
               <div className={`rounded-2xl p-4 sm:p-5 border transition-all ${
                 darkMode ? "bg-zinc-900/80 border-zinc-800" : "bg-white border-slate-200/90 shadow-2xs"
@@ -315,54 +407,6 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
                   </button>
                 </div>
               </div>
-
-              {/* ── Seat Assignment Banner ── */}
-              {seatLoading && (
-                <div className={`rounded-2xl p-4 border flex items-center gap-3 ${
-                  darkMode ? "bg-zinc-900/80 border-zinc-800" : "bg-white border-slate-200/90 shadow-2xs"
-                }`}>
-                  <Loader2 className="w-5 h-5 animate-spin text-indigo-500 shrink-0" />
-                  <p className="text-sm text-slate-600 dark:text-zinc-400">Assigning your seat…</p>
-                </div>
-              )}
-
-              {!seatLoading && seatInfo && (
-                <div className={`rounded-2xl p-5 border ${
-                  darkMode ? "bg-zinc-900/80 border-zinc-700" : "bg-white border-slate-200/90 shadow-2xs"
-                }`}>
-                  <div className="flex items-center gap-4">
-                    {/* Big seat label */}
-                    <div className="w-16 h-16 rounded-2xl bg-indigo-600 flex flex-col items-center justify-center shrink-0 shadow-md">
-                      <MapPin className="w-5 h-5 text-white mb-0.5" />
-                      <span className="text-xl font-black text-white leading-none">{seatInfo.seat}</span>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                        Your Seat is{" "}
-                        <span className="text-indigo-600 dark:text-indigo-400">{seatInfo.seat}</span>
-                      </h4>
-                      <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-                        {seatInfo.already_assigned
-                          ? "Previously assigned seat — NURI is on its way."
-                          : "NURI robot will navigate to your seat shortly. Please wait here."}
-                      </p>
-                      <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/40">
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                        <span className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-400">Robot dispatched</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {!seatLoading && seatError && (
-                <div className={`rounded-2xl p-4 border flex items-start gap-3 ${
-                  darkMode ? "bg-zinc-900/80 border-amber-800/40" : "bg-amber-50 border-amber-200"
-                }`}>
-                  <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                  <p className="text-sm text-amber-700 dark:text-amber-400">{seatError}</p>
-                </div>
-              )}
 
               <VitalsGrid latestReading={latestReading} />
             </>
