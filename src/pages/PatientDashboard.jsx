@@ -234,7 +234,40 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
     setActiveTab("dashboard");
   };
 
-  const latestReading = patient ? getLatestVitalsForPatient(patient.patientId) : null;
+  const [dbReading, setDbReading] = useState(null);
+
+  // Poll database for live vitals readings recorded by ESP32 / Robot
+  useEffect(() => {
+    if (!patient?.auth0Sub) return;
+
+    const fetchPatientReadings = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/patients/${encodeURIComponent(patient.auth0Sub)}/readings?limit=1`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data && json.data.length > 0) {
+            const r = json.data[0];
+            const date = new Date(r.timestamp);
+            setDbReading({
+              heartRate: Math.round(r.heart_rate),
+              spO2: Math.round(r.spo2),
+              temperature: parseFloat(r.temperature).toFixed(1),
+              syncedAgoText: "Recorded " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              timestamp: date.toISOString(),
+            });
+          }
+        }
+      } catch {
+        // Silent fail
+      }
+    };
+
+    fetchPatientReadings();
+    const interval = setInterval(fetchPatientReadings, 5000);
+    return () => clearInterval(interval);
+  }, [patient?.auth0Sub]);
+
+  const latestReading = dbReading || (patient ? getLatestVitalsForPatient(patient.patientId) : null);
 
   const handleLogout = () => {
     if (logout) logout();
