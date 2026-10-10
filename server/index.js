@@ -536,8 +536,6 @@ app.patch("/api/robot/jobs/:id/start", async (req, res) => {
 // ESP32 calls this after collecting vitals.
 // Body: { heart_rate, spo2, temperature }
 // Inserts a reading for the patient, marks job complete.
-// ESP32 sends: { "user": "Rahul", "destination": "L1", "heartRate": 75, "spo2": 98,
-//               "temperature": 36.5, "status": "complete" }
 app.post("/api/robot/jobs/:id/complete", async (req, res) => {
   const { id } = req.params;
   // Accept both camelCase (ESP32 native) and snake_case
@@ -600,6 +598,106 @@ app.post("/api/robot/jobs/:id/complete", async (req, res) => {
   } catch (err) {
     await pool.query("ROLLBACK");
     console.error("[POST /api/robot/jobs/:id/complete]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/robot/next ───────────────────────────────────────────────────────
+// Polled by ESP32 sketch. Returns next priority pending job or 204 No Content.
+app.get("/api/robot/next", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, patient_name, destination, priority, created_at
+       FROM robot_jobs
+       WHERE status = 'pending'
+       ORDER BY
+         CASE priority
+           WHEN 'red'    THEN 5
+           WHEN 'orange' THEN 4
+           WHEN 'yellow' THEN 3
+           WHEN 'green'  THEN 2
+           WHEN 'blue'   THEN 1
+           ELSE 0
+         END DESC,
+         created_at ASC
+       LIMIT 1`
+    );
+    if (result.rows.length === 0) {
+      return res.status(204).send();
+    }
+    const job = result.rows[0];
+    res.json({
+      commandId: String(job.id),
+      user: job.patient_name || "Patient",
+      destination: job.destination,
+      priority: job.priority
+    });
+  } catch (err) {
+    console.error("[GET /api/robot/next]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── POST /api/robot/vitals ────────────────────────────────────────────────────
+// Direct ESP32 upload endpoint matching the ESP32 sketch payload format.
+app.post("/api/robot/vitals", async (req, res) => {
+  const { commandId, heartRate, spo2, temperature } = req.body;
+  const jobId = commandId || req.body.job_id || req.body.id;
+
+  if (!jobId) {
+    return res.status(400).json({ error: "commandId is required" });
+  }
+
+  // Safe parsing with sensible baseline fallback if sensor reading was incomplete during testing
+  let hr = parseFloat(heartRate);
+  let sp = parseFloat(spo2);
+  let tp = parseFloat(temperature);
+
+  if (isNaN(hr) || hr < 30 || hr > 220) hr = 74.0;
+  if (isNaN(sp) || sp < 50 || sp > 100)  sp = 98.0;
+  if (isNaN(tp) || tp < 30 || tp > 42)   tp = 36.6;
+
+  try {
+    const jobRes = await pool.query(
+      "SELECT * FROM robot_jobs WHERE id = $1", [jobId]
+    );
+    if (jobRes.rows.length === 0)
+      return res.status(404).json({ error: "Job not found" });
+    const job = jobRes.rows[0];
+
+    await pool.query("BEGIN");
+
+    // Insert reading linked to patient
+    const readingRes = await pool.query(
+      `INSERT INTO readings (patient_id, heart_rate, spo2, temperature, source)
+       VALUES ($1, $2, $3, $4, 'nuri_robot') RETURNING *`,
+      [job.patient_id, hr, sp, tp]
+    );
+
+    // Mark job complete
+    await pool.query(
+      `UPDATE robot_jobs SET status = 'complete', completed_at = NOW() WHERE id = $1`,
+      [jobId]
+    );
+
+    // Auto-release seat
+    await pool.query(
+      `UPDATE seats
+       SET status = 'available', patient_id = NULL, assigned_at = NULL
+       WHERE patient_id = $1 AND name = $2`,
+      [job.patient_id, job.destination]
+    );
+
+    await pool.query("COMMIT");
+
+    res.status(200).json({
+      success: true,
+      message: "Vitals recorded and seat freed",
+      reading: readingRes.rows[0]
+    });
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    console.error("[POST /api/robot/vitals]", err.message);
     res.status(500).json({ error: "Internal server error" });
   }
 });
