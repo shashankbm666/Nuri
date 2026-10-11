@@ -3,7 +3,6 @@
 NURI is a medical telemetry system that triages walk-in patients, assigns them a waiting-room seat, and sends an autonomous ESP32 robot to measure their vital signs before the doctor consultation.
 
 
-![NURI Robot and System Architecture](assets/nuri-system-overview.png)
 <img width="744" height="864" alt="image" src="https://github.com/user-attachments/assets/6b28878d-dc65-415a-a3ba-777e3f0fa8ef" />
 
 
