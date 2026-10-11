@@ -125,12 +125,18 @@ app.delete("/api/patients/:sub", async (req, res) => {
     
     // Delete readings
     await pool.query("DELETE FROM readings WHERE patient_id = $1", [patientId]);
+
+    // Release any seat assigned to this patient
+    await pool.query("UPDATE seats SET status = 'available', patient_id = NULL, assigned_at = NULL WHERE patient_id = $1", [patientId]);
+
+    // Delete any robot jobs for this patient
+    await pool.query("DELETE FROM robot_jobs WHERE patient_id = $1", [patientId]);
     
     // Delete patient
     await pool.query("DELETE FROM patients WHERE id = $1", [patientId]);
     
     await pool.query("COMMIT");
-    res.json({ success: true, message: "Patient and associated readings deleted successfully" });
+    res.json({ success: true, message: "Patient, associated readings, and seat assignments cleared successfully" });
   } catch (err) {
     await pool.query("ROLLBACK");
     console.error("[DELETE /api/patients/:sub]", err.message);
