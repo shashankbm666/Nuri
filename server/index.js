@@ -329,13 +329,16 @@ app.get("/api/patients/:sub/readings", async (req, res) => {
 // SEAT MANAGEMENT
 // ════════════════════════════════════════════════════════════════════════════
 
-// Seat preference order by triage priority (inner seats = closer for robot)
+// Seat preference order by triage priority:
+// - Urgent (red, orange) are clustered on the RIGHT wing (R1, R2)
+// - Routine (green, blue) are clustered on the LEFT wing (L1, L2)
+// - Moderate (yellow) prefers R2 then L2
 const SEAT_PRIORITY = {
-  red:    ["R1", "L1", "R2", "L2"],
-  orange: ["R1", "L1", "R2", "L2"],
+  red:    ["R1", "R2", "L1", "L2"],
+  orange: ["R1", "R2", "L1", "L2"],
   yellow: ["R2", "L2", "R1", "L1"],
   green:  ["L1", "L2", "R1", "R2"],
-  blue:   ["L2", "L1", "R2", "R1"],
+  blue:   ["L1", "L2", "R1", "R2"],
 };
 
 // ── GET /api/seats ────────────────────────────────────────────────────────────
@@ -358,14 +361,13 @@ app.get("/api/seats", async (req, res) => {
 
 // ── POST /api/seats/assign ───────────────────────────────────────────────────
 // Called after patient completes survey. Assigns the best available seat
-// based on triage priority, creates a robot job, and returns the seat + job.
+// based on triage priority, clusters patients of the same severity on the SAME side
+// to minimize robot travel distance, creates a robot job, and returns the seat + job.
 // Body: { auth0_sub, priority: "red"|"orange"|"yellow"|"green"|"blue" }
 app.post("/api/seats/assign", async (req, res) => {
   const { auth0_sub, priority } = req.body;
   if (!auth0_sub) return res.status(400).json({ error: "auth0_sub is required" });
   if (!priority)  return res.status(400).json({ error: "priority is required" });
-
-  const preferredOrder = SEAT_PRIORITY[priority] || SEAT_PRIORITY.blue;
 
   try {
     // Find patient
@@ -394,6 +396,28 @@ app.post("/api/seats/assign", async (req, res) => {
         job_id: job.rows[0]?.id || null,
         already_assigned: true,
       });
+    }
+
+    // Dynamic Same-Side Optimization:
+    // Check if there is already an active patient with the exact same severity.
+    // If so, prioritize assigning the SAME side (R or L) so the robot travels less!
+    let preferredOrder = [...(SEAT_PRIORITY[priority] || SEAT_PRIORITY.blue)];
+    const activeSameSeverity = await pool.query(
+      `SELECT destination FROM robot_jobs 
+       WHERE priority = $1 AND status != 'complete' 
+       ORDER BY created_at DESC LIMIT 1`,
+      [priority]
+    );
+
+    if (activeSameSeverity.rows.length > 0) {
+      const activeDest = activeSameSeverity.rows[0].destination;
+      if (activeDest.startsWith("R")) {
+        // Active same-severity patient is on the R side -> prioritize R seats first
+        preferredOrder = ["R1", "R2", "L1", "L2"];
+      } else if (activeDest.startsWith("L")) {
+        // Active same-severity patient is on the L side -> prioritize L seats first
+        preferredOrder = ["L1", "L2", "R1", "R2"];
+      }
     }
 
     // Find first available seat in priority order
