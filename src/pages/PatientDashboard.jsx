@@ -250,11 +250,15 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_id: seatInfo.job_id }),
       });
+      const json = await res.json().catch(() => ({}));
       if (res.ok) {
-        setSeatInfo(prev => ({ ...prev, job_status: "pending" }));
+        // Update to whatever status the server returned (pending or already dispatched)
+        setSeatInfo(prev => ({ ...prev, job_status: json.status || "pending" }));
+      } else {
+        console.error("[PatientDashboard] Dispatch failed:", res.status, json);
       }
     } catch (err) {
-      console.error("[PatientDashboard] Dispatch failed:", err.message);
+      console.error("[PatientDashboard] Dispatch network error:", err.message);
     } finally {
       setDispatching(false);
     }

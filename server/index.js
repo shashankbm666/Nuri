@@ -510,6 +510,8 @@ app.get("/api/seats/current/:patient_id", async (req, res) => {
     console.error("[GET /api/seats/current/:patient_id]", err.message);
     res.status(500).json({ error: "Internal server error" });
   }
+});
+
 // ── POST /api/robot/dispatch ──────────────────────────────────────────────────
 // Dispatches the robot to a patient's seat.
 // Can be called by the patient ("I am seated at my chair") or by the doctor.
