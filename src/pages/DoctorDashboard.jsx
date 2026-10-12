@@ -582,13 +582,30 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                         {occupied ? (seat?.patient_name?.split(" ")[0] || "Occupied") : "Free"}
                       </div>
                       {occupied && (
-                        <button
-                          onClick={() => window.confirm(`Force-release seat ${name}? (Use only if robot failed or patient left early)`) && releaseSeat(name)}
-                          title="Force-release seat (emergency only)"
-                          className="mt-1.5 text-[8px] text-indigo-300 hover:text-white underline cursor-pointer bg-transparent border-0"
-                        >
-                          force release
-                        </button>
+                        <div className="mt-1.5 flex flex-col gap-0.5 items-center">
+                          <button
+                            onClick={async () => {
+                              try {
+                                await fetch(`${BACKEND_URL}/api/robot/dispatch`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ seat_name: name }),
+                                });
+                              } catch { /* silent */ }
+                            }}
+                            title="Dispatch NURI robot to this seat"
+                            className="text-[8px] text-emerald-300 hover:text-white underline cursor-pointer bg-transparent border-0"
+                          >
+                            dispatch robot
+                          </button>
+                          <button
+                            onClick={() => window.confirm(`Force-release seat ${name}? (Use only if robot failed or patient left early)`) && releaseSeat(name)}
+                            title="Force-release seat (emergency only)"
+                            className="text-[8px] text-indigo-300 hover:text-white underline cursor-pointer bg-transparent border-0"
+                          >
+                            force release
+                          </button>
+                        </div>
                       )}
                     </div>
                   );

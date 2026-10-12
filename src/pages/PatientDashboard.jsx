@@ -10,7 +10,7 @@ import { getLatestVitalsForPatient } from "../services/vitalsService";
 import { getPatientTriageSurvey } from "../services/triageService";
 import { useAuth } from "../auth/AuthProvider";
 import { useOpd } from "../context/OpdContext";
-import { ClipboardList, CheckCircle2, ChevronRight, Loader2, MapPin, AlertCircle } from "lucide-react";
+import { ClipboardList, CheckCircle2, ChevronRight, Loader2, MapPin, AlertCircle, Bot } from "lucide-react";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 
@@ -71,7 +71,12 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
             const seatRes = await fetch(`${BACKEND_URL}/api/seats/current/${data.id}`);
             if (seatRes.ok) {
               const seatJson = await seatRes.json();
-              setSeatInfo({ seat: seatJson.data.name, already_assigned: true });
+              setSeatInfo({
+                seat: seatJson.data.name,
+                already_assigned: true,
+                job_id: seatJson.data.job_id,
+                job_status: seatJson.data.job_status || "waiting_dispatch",
+              });
               // Has a seat → go straight to dashboard to show it
               setActiveTab("dashboard");
             } else {
@@ -219,7 +224,7 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
       });
       const json = await res.json();
       if (res.ok) {
-        setSeatInfo({ seat: json.seat, job_id: json.job_id, already_assigned: json.already_assigned });
+        setSeatInfo({ seat: json.seat, job_id: json.job_id, job_status: json.job_status || "waiting_dispatch", already_assigned: json.already_assigned });
       } else if (res.status === 409) {
         setSeatError("All seats are currently occupied. Please wait and inform the front desk.");
       } else {
@@ -232,6 +237,27 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
     }
 
     setActiveTab("dashboard");
+  };
+
+  const [dispatching, setDispatching] = useState(false);
+
+  const handleDispatchRobot = async () => {
+    if (!seatInfo?.job_id || dispatching) return;
+    setDispatching(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/robot/dispatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: seatInfo.job_id }),
+      });
+      if (res.ok) {
+        setSeatInfo(prev => ({ ...prev, job_status: "pending" }));
+      }
+    } catch (err) {
+      console.error("[PatientDashboard] Dispatch failed:", err.message);
+    } finally {
+      setDispatching(false);
+    }
   };
 
   const [dbReading, setDbReading] = useState(null);
@@ -364,19 +390,54 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
                         Please proceed to seat <strong className="text-slate-700 dark:text-zinc-200">{seatInfo.seat}</strong> in the waiting area. NURI will navigate to your seat, collect your vitals, and return automatically.
                       </p>
 
-                      {/* Status pills */}
+                      {/* Status pills / Call Robot button */}
                       <div className="mt-3 flex flex-wrap gap-2 justify-center sm:justify-start">
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-700/50 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
                           <MapPin className="w-3 h-3" /> Seat {seatInfo.seat}
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-700/50 text-xs font-semibold text-violet-700 dark:text-violet-300">
-                          <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
-                          🤖 Robot en route
                         </span>
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-400">
                           ID: {patient?.patientId}
                         </span>
                       </div>
+
+                      {/* ── "Call NURI Robot" CTA — shown only when waiting_dispatch ── */}
+                      {(!seatInfo.job_status || seatInfo.job_status === "waiting_dispatch") && (
+                        <button
+                          onClick={handleDispatchRobot}
+                          disabled={dispatching}
+                          className="mt-4 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-60 text-white font-semibold text-sm shadow-lg shadow-indigo-500/30 transition-all duration-200"
+                        >
+                          {dispatching ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Calling NURI…
+                            </>
+                          ) : (
+                            <>
+                              <Bot className="w-4 h-4" />
+                              I am seated — Call NURI Robot to Seat {seatInfo.seat}
+                            </>
+                          )}
+                        </button>
+                      )}
+
+                      {/* ── Robot dispatched / en route pill ── */}
+                      {(seatInfo.job_status === "pending" || seatInfo.job_status === "in_progress") && (
+                        <div className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-700/50 text-sm font-semibold text-violet-700 dark:text-violet-300">
+                          <Bot className="w-4 h-4" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+                          NURI is on its way to Seat {seatInfo.seat}…
+                        </div>
+                      )}
+
+                      {/* ── Vitals collected pill ── */}
+                      {seatInfo.job_status === "complete" && (
+                        <div className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700/50 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                          <CheckCircle2 className="w-4 h-4" />
+                          Vitals collected — check results below
+                        </div>
+                      )}
+
                     </div>
                   </div>
                 </div>

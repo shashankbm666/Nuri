@@ -342,14 +342,16 @@ const SEAT_PRIORITY = {
 };
 
 // ── GET /api/seats ────────────────────────────────────────────────────────────
-// Returns all 4 seats with current status and occupant name (if any)
+// Returns all 4 seats with current status, occupant name, and robot job dispatch status
 app.get("/api/seats", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT s.id, s.name, s.status, s.patient_id, s.assigned_at,
-             p.full_name AS patient_name
+             p.full_name AS patient_name,
+             rj.id AS job_id, rj.status AS job_status
       FROM seats s
       LEFT JOIN patients p ON s.patient_id = p.id
+      LEFT JOIN robot_jobs rj ON rj.patient_id = s.patient_id AND rj.status != 'complete'
       ORDER BY s.name
     `);
     res.json({ data: result.rows });
@@ -362,7 +364,7 @@ app.get("/api/seats", async (req, res) => {
 // ── POST /api/seats/assign ───────────────────────────────────────────────────
 // Called after patient completes survey. Assigns the best available seat
 // based on triage priority, clusters patients of the same severity on the SAME side
-// to minimize robot travel distance, creates a robot job, and returns the seat + job.
+// to minimize robot travel distance, creates a robot job (waiting for dispatch), and returns seat + job.
 // Body: { auth0_sub, priority: "red"|"orange"|"yellow"|"green"|"blue" }
 app.post("/api/seats/assign", async (req, res) => {
   const { auth0_sub, priority } = req.body;
@@ -394,6 +396,7 @@ app.post("/api/seats/assign", async (req, res) => {
         seat: seat.name,
         seat_id: seat.id,
         job_id: job.rows[0]?.id || null,
+        job_status: job.rows[0]?.status || 'waiting_dispatch',
         already_assigned: true,
       });
     }
@@ -446,10 +449,11 @@ app.post("/api/seats/assign", async (req, res) => {
       [patient_id, assignedSeat.id]
     );
 
-    // Create robot job — store priority so queue is served by severity
+    // Create robot job in 'waiting_dispatch' state:
+    // Allows the patient to walk over and sit down comfortably before motors run.
     const jobRes = await pool.query(
       `INSERT INTO robot_jobs (patient_id, patient_name, destination, status, priority)
-       VALUES ($1, $2, $3, 'pending', $4) RETURNING id`,
+       VALUES ($1, $2, $3, 'waiting_dispatch', $4) RETURNING id`,
       [patient_id, patient_name, assignedSeat.name, priority]
     );
 
@@ -458,6 +462,7 @@ app.post("/api/seats/assign", async (req, res) => {
       seat: assignedSeat.name,
       seat_id: assignedSeat.id,
       job_id: jobRes.rows[0].id,
+      job_status: 'waiting_dispatch',
       patient_name,
     });
   } catch (err) {
@@ -503,6 +508,72 @@ app.get("/api/seats/current/:patient_id", async (req, res) => {
     res.json({ data: result.rows[0] });
   } catch (err) {
     console.error("[GET /api/seats/current/:patient_id]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+// ── POST /api/robot/dispatch ──────────────────────────────────────────────────
+// Dispatches the robot to a patient's seat.
+// Can be called by the patient ("I am seated at my chair") or by the doctor.
+app.post("/api/robot/dispatch", async (req, res) => {
+  const { job_id, auth0_sub, seat_name } = req.body;
+
+  try {
+    let targetJobId = job_id;
+
+    if (!targetJobId && auth0_sub) {
+      const patRes = await pool.query("SELECT id FROM patients WHERE auth0_sub = $1", [auth0_sub]);
+      if (patRes.rows.length > 0) {
+        const patientId = patRes.rows[0].id;
+        const jobRes = await pool.query(
+          "SELECT id FROM robot_jobs WHERE patient_id = $1 AND status != 'complete' ORDER BY created_at DESC LIMIT 1",
+          [patientId]
+        );
+        if (jobRes.rows.length > 0) {
+          targetJobId = jobRes.rows[0].id;
+        }
+      }
+    }
+
+    if (!targetJobId && seat_name) {
+      const jobRes = await pool.query(
+        "SELECT id FROM robot_jobs WHERE destination = $1 AND status != 'complete' ORDER BY created_at DESC LIMIT 1",
+        [seat_name.toUpperCase()]
+      );
+      if (jobRes.rows.length > 0) {
+        targetJobId = jobRes.rows[0].id;
+      }
+    }
+
+    if (!targetJobId) {
+      return res.status(400).json({ error: "job_id, auth0_sub, or seat_name is required" });
+    }
+
+    // Move status from 'waiting_dispatch' to 'pending'
+    const result = await pool.query(
+      `UPDATE robot_jobs SET status = 'pending'
+       WHERE id = $1 AND status = 'waiting_dispatch' RETURNING *`,
+      [targetJobId]
+    );
+
+    if (result.rows.length === 0) {
+      // Check if job exists and was already dispatched
+      const existing = await pool.query("SELECT * FROM robot_jobs WHERE id = $1", [targetJobId]);
+      if (existing.rows.length > 0) {
+        return res.json({
+          message: "Robot already dispatched",
+          data: existing.rows[0],
+          status: existing.rows[0].status
+        });
+      }
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    res.json({
+      message: "Robot dispatched successfully",
+      data: result.rows[0],
+      status: "pending"
+    });
+  } catch (err) {
+    console.error("[POST /api/robot/dispatch]", err.message);
     res.status(500).json({ error: "Internal server error" });
   }
 });
