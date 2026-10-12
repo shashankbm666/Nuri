@@ -583,21 +583,41 @@ export default function DoctorDashboard({ darkMode, setDarkMode }) {
                       </div>
                       {occupied && (
                         <div className="mt-1.5 flex flex-col gap-0.5 items-center">
-                          <button
-                            onClick={async () => {
-                              try {
-                                await fetch(`${BACKEND_URL}/api/robot/dispatch`, {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ seat_name: name }),
-                                });
-                              } catch { /* silent */ }
-                            }}
-                            title="Dispatch NURI robot to this seat"
-                            className="text-[8px] text-emerald-300 hover:text-white underline cursor-pointer bg-transparent border-0"
-                          >
-                            dispatch robot
-                          </button>
+                          {seat?.job_status === "pending" || seat?.job_status === "in_progress" ? (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await fetch(`${BACKEND_URL}/api/robot/cancel`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ seat_name: name }),
+                                  });
+                                  fetchSeats();
+                                } catch { /* silent */ }
+                              }}
+                              title="Cancel / Recall NURI robot from this seat"
+                              className="text-[8px] text-amber-300 hover:text-white underline cursor-pointer bg-transparent border-0"
+                            >
+                              recall robot
+                            </button>
+                          ) : (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await fetch(`${BACKEND_URL}/api/robot/dispatch`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ seat_name: name }),
+                                  });
+                                  fetchSeats();
+                                } catch { /* silent */ }
+                              }}
+                              title="Dispatch NURI robot to this seat"
+                              className="text-[8px] text-emerald-300 hover:text-white underline cursor-pointer bg-transparent border-0"
+                            >
+                              dispatch robot
+                            </button>
+                          )}
                           <button
                             onClick={() => window.confirm(`Force-release seat ${name}? (Use only if robot failed or patient left early)`) && releaseSeat(name)}
                             title="Force-release seat (emergency only)"

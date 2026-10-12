@@ -484,6 +484,13 @@ app.patch("/api/seats/:name/release", async (req, res) => {
     );
     if (result.rows.length === 0)
       return res.status(404).json({ error: "Seat not found" });
+
+    // Also cancel any pending/in-progress jobs for this seat
+    await pool.query(
+      `DELETE FROM robot_jobs WHERE destination = $1 AND status != 'complete'`,
+      [name.toUpperCase()]
+    );
+
     res.json({ released: result.rows[0].name, status: "available" });
   } catch (err) {
     console.error("[PATCH /api/seats/:name/release]", err.message);
@@ -580,6 +587,61 @@ app.post("/api/robot/dispatch", async (req, res) => {
   }
 });
 
+// ── POST /api/robot/cancel ────────────────────────────────────────────────────
+// Cancels an active robot job (pending or in_progress).
+// Resets status back to 'waiting_dispatch' so the patient can re-call the robot.
+// Body: { job_id } or { auth0_sub } or { seat_name }
+app.post("/api/robot/cancel", async (req, res) => {
+  const { job_id, auth0_sub, seat_name } = req.body;
+
+  try {
+    let targetJobId = job_id;
+
+    if (!targetJobId && auth0_sub) {
+      const patRes = await pool.query("SELECT id FROM patients WHERE auth0_sub = $1", [auth0_sub]);
+      if (patRes.rows.length > 0) {
+        const jobRes = await pool.query(
+          "SELECT id FROM robot_jobs WHERE patient_id = $1 AND status IN ('pending','in_progress','waiting_dispatch') ORDER BY created_at DESC LIMIT 1",
+          [patRes.rows[0].id]
+        );
+        if (jobRes.rows.length > 0) targetJobId = jobRes.rows[0].id;
+      }
+    }
+
+    if (!targetJobId && seat_name) {
+      const jobRes = await pool.query(
+        "SELECT id FROM robot_jobs WHERE destination = $1 AND status IN ('pending','in_progress','waiting_dispatch') ORDER BY created_at DESC LIMIT 1",
+        [seat_name.toUpperCase()]
+      );
+      if (jobRes.rows.length > 0) targetJobId = jobRes.rows[0].id;
+    }
+
+    if (!targetJobId) {
+      return res.status(400).json({ error: "job_id, auth0_sub, or seat_name is required" });
+    }
+
+    // Reset back to waiting_dispatch — patient can re-call robot
+    const result = await pool.query(
+      `UPDATE robot_jobs SET status = 'waiting_dispatch'
+       WHERE id = $1 AND status IN ('pending', 'in_progress') RETURNING *`,
+      [targetJobId]
+    );
+
+    if (result.rows.length === 0) {
+      const existing = await pool.query("SELECT * FROM robot_jobs WHERE id = $1", [targetJobId]);
+      if (existing.rows.length > 0) {
+        return res.json({ message: "Job already in state: " + existing.rows[0].status, data: existing.rows[0] });
+      }
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    res.json({ message: "Robot recalled successfully", data: result.rows[0], status: "waiting_dispatch" });
+  } catch (err) {
+    console.error("[POST /api/robot/cancel]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 // ROBOT JOB QUEUE  (ESP32 polls these)
 // ════════════════════════════════════════════════════════════════════════════
@@ -611,6 +673,24 @@ app.get("/api/robot/pending", async (req, res) => {
     res.json({ job: result.rows[0] });
   } catch (err) {
     console.error("[GET /api/robot/pending]", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── GET /api/robot/jobs/:id/status ────────────────────────────────────────────
+// Checks the live status of a job (e.g. ESP32 checks whether user cancelled midway).
+app.get("/api/robot/jobs/:id/status", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      "SELECT id, status, destination, priority, started_at, completed_at FROM robot_jobs WHERE id = $1",
+      [id]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: "Job not found" });
+    res.json({ data: result.rows[0], status: result.rows[0].status });
+  } catch (err) {
+    console.error("[GET /api/robot/jobs/:id/status]", err.message);
     res.status(500).json({ error: "Internal server error" });
   }
 });

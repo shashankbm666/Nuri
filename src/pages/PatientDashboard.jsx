@@ -242,18 +242,25 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
   const [dispatching, setDispatching] = useState(false);
 
   const handleDispatchRobot = async () => {
-    if (!seatInfo?.job_id || dispatching) return;
+    if (dispatching) return;
     setDispatching(true);
     try {
       const res = await fetch(`${BACKEND_URL}/api/robot/dispatch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: seatInfo.job_id }),
+        body: JSON.stringify({
+          job_id: seatInfo?.job_id,
+          auth0_sub: patient?.auth0Sub,
+          seat_name: seatInfo?.seat,
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok) {
-        // Update to whatever status the server returned (pending or already dispatched)
-        setSeatInfo(prev => ({ ...prev, job_status: json.status || "pending" }));
+        setSeatInfo(prev => ({
+          ...prev,
+          job_id: json.data?.id || prev?.job_id,
+          job_status: json.status || "pending",
+        }));
       } else {
         console.error("[PatientDashboard] Dispatch failed:", res.status, json);
       }
@@ -261,6 +268,31 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
       console.error("[PatientDashboard] Dispatch network error:", err.message);
     } finally {
       setDispatching(false);
+    }
+  };
+
+  const [cancelling, setCancelling] = useState(false);
+
+  const handleCancelRobot = async () => {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/robot/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: seatInfo?.job_id,
+          auth0_sub: patient?.auth0Sub,
+          seat_name: seatInfo?.seat,
+        }),
+      });
+      if (res.ok) {
+        setSeatInfo(prev => ({ ...prev, job_status: "waiting_dispatch" }));
+      }
+    } catch (err) {
+      console.error("[PatientDashboard] Cancel failed:", err.message);
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -425,12 +457,22 @@ export default function PatientDashboard({ darkMode, setDarkMode }) {
                         </button>
                       )}
 
-                      {/* ── Robot dispatched / en route pill ── */}
+                      {/* ── Robot dispatched / en route pill + cancel ── */}
                       {(seatInfo.job_status === "pending" || seatInfo.job_status === "in_progress") && (
-                        <div className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-700/50 text-sm font-semibold text-violet-700 dark:text-violet-300">
-                          <Bot className="w-4 h-4" />
-                          <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
-                          NURI is on its way to Seat {seatInfo.seat}…
+                        <div className="mt-4 flex flex-wrap items-center gap-3">
+                          <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-violet-100 dark:bg-violet-900/30 border border-violet-200 dark:border-violet-700/50 text-sm font-semibold text-violet-700 dark:text-violet-300">
+                            <Bot className="w-4 h-4" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+                            NURI is on its way to Seat {seatInfo.seat}…
+                          </div>
+                          <button
+                            onClick={handleCancelRobot}
+                            disabled={cancelling}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-300 dark:border-red-800 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 active:scale-95 disabled:opacity-50 transition-all duration-150"
+                          >
+                            {cancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : "✕"}
+                            {cancelling ? "Recalling…" : "Cancel / Recall Robot"}
+                          </button>
                         </div>
                       )}
 
